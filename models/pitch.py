@@ -1,7 +1,6 @@
 import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
-# from postgrest.exceptions import APIError
 import json
 import re
 
