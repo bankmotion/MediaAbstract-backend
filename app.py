@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv
+from werkzeug.urls import url_quote
 
 # Load environment variables first
 load_dotenv()
