@@ -1,6 +1,7 @@
 pip == 25.0.1
-flask==2.0.1
-flask-cors==3.0.10
-python-dotenv==0.19.0
+flask == 2.2.0
+wekzeug >= 2.2.0
+flask-cors == 3.0.10
+python-dotenv == 0.19.0
 supabase
 gunicorn == 21.2.0
