@@ -67,7 +67,7 @@ class Pitch:
                         "ai_partnered": outlet.get("AI Partnered", False),
                         "matched_keywords": list(common_words),
                         "pitch_tips": outlet.get("Pitch Tips", "No pitch tips available."),
-                        "submission_guidelines": outlet.get("Guidelines", "No submission guidelines available."),
+                        "guidelines": outlet.get("Guidelines", "No submission guidelines available."),
                     })
             
             #Sort outlets by match confidence
