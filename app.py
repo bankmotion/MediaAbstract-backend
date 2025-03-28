@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
-from werkzeug.urls import url_quote
+# from werkzeug.urls import url_quote
+from werkzeug.urls import unquote
 
 # Load environment variables first
 load_dotenv()
@@ -20,4 +21,4 @@ def home():
 
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=10000, debug=True, use_reloader=False)
+    app.run(host='https://mediaabstract-backend.onrender.com/', port=10000, debug=True, use_reloader=False)
