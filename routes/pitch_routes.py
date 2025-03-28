@@ -37,3 +37,17 @@ def submit_pitch():
         print(f"Error in submit_pitch: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
     
+
+@pitch_routes.route("/get_dashboard_data", methods=["GET"])
+def get_dashboard_data():
+    # user_id = request.args.get("user_id")
+    # if not user_id:
+    #     return jsonify({"error": "User ID required"}), 400
+    
+    # dashboard_data = Pitch.get_dashboard_data(user_id)
+    dashboard_data = Pitch.get_dashboard_data()
+    print("Dashboard Data: ", dashboard_data)
+    if dashboard_data:
+        return jsonify(dashboard_data), 200
+    else:
+        return jsonify({"error": "Failed to fetch dashboard data"}), 500

@@ -3,6 +3,7 @@ from supabase import create_client, Client
 from dotenv import load_dotenv
 import json
 import re
+from datetime import datetime
 
 load_dotenv()
 
@@ -21,9 +22,15 @@ class Pitch:
 
     def insert_pitch(self):
         try:
+            matched_outlets = self.match_outlets()
+            match_count = len(matched_outlets)
+
             data = {
                 "abstract": self.abstract,
-                "industry": self.industry
+                "industry": self.industry,
+                "status": "Submitted",
+                "matches_found": match_count,
+                "created_at": datetime.utcnow().isoformat()
             }
             
             response = supabase.table("pitches").insert(data).execute()
@@ -48,6 +55,7 @@ class Pitch:
             abstract_words = set(re.findall(r'\b\w+\b', self.abstract))
             print("abstract word", abstract_words)
             matches = []
+            
             for outlet in outlets:
                 outlet_keywords = set(re.findall(r'\b\w+\b', outlet.get("Keywords", "").lower()))
                 outlet_name = outlet.get("Outlet Name", "Unknown Outlet")
@@ -78,3 +86,27 @@ class Pitch:
         except Exception as e:
             print(f"Error matching outlets: {str(e)}")
             return []
+        
+    @staticmethod
+    def get_dashboard_data():
+        try:
+            # pitches = supabase.table("pitches").select("*").eq("user_id", user_id).execute().data
+            pitches = supabase.table("pitches").select("*").execute().data
+            # print("pitches: ", pitches)            
+            # activity = supabase.table("activity_log").select("*").eq("user_id", user_id).order("timestamp", desc=True).execute().data
+            total_pitches = len(pitches)
+            total_matches = sum(p["matches_found"] if p["matches_found"] is not None else 0 for p in pitches)
+
+        
+            print("total pitches: ", total_pitches)
+            print("total matches: ", total_matches)
+
+            return {
+                "pitches_sent": total_pitches,
+                "matches_found": total_matches,
+                # "my_pitches": pitches,
+                # "activity": activity
+            }
+        except Exception as e:
+            print(f"Error fetching dashboard data: {str(e)}")
+            return None
