@@ -1,9 +1,18 @@
 import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
-import json
-import re
+from typing import List, Dict
+# import json
+# import re
 from datetime import datetime
+# import spacy
+# from fuzzywuzzy import fuzz
+# from sklearn.metrics.pairwise import cosine_similarity
+# import numpy as np
+from models.matcher import OutletMatcher
+
+
+# nlp = spacy.load("en_core_web_md")
 
 load_dotenv()
 
@@ -19,10 +28,17 @@ class Pitch:
     def __init__(self, abstract: str, industry: str):
         self.abstract = abstract
         self.industry = industry
+        # self.abstract_doc = nlp(self.abstract)
+        self.matcher = OutletMatcher(supabase)
+
+    def find_matching_outlets(self) -> List[Dict]:
+        """Find matching outlets for the pitch."""
+        query = f"{self.abstract} {self.industry}"
+        return self.matcher.find_matches(query)
 
     def insert_pitch(self):
         try:
-            matched_outlets = self.match_outlets()
+            matched_outlets = self.find_matching_outlets()
             match_count = len(matched_outlets)
 
             data = {
@@ -44,49 +60,7 @@ class Pitch:
             print(f"Detailed error inserting pitch: {str(e)}")
             return False
         
-    def match_outlets(self):
-        try:
-            response = supabase.table("outlets").select("*").execute()
-            outlets = response.data
-
-            if not outlets:
-                return []
-            
-            abstract_words = set(re.findall(r'\b\w+\b', self.abstract))
-            print("abstract word", abstract_words)
-            matches = []
-            
-            for outlet in outlets:
-                outlet_keywords = set(re.findall(r'\b\w+\b', outlet.get("Keywords", "").lower()))
-                outlet_name = outlet.get("Outlet Name", "Unknown Outlet")
-                
-                # Count matching score
-                common_words = abstract_words.intersection(outlet_keywords)
-                match_score = len(common_words)
-                print("Common word, Match score:", common_words, match_score)
-                # If there's a match, calculate confidence percentage
-                if match_score > 0:
-                    match_confidence = round((match_score / len(outlet_keywords)) * 100, 2) if outlet_keywords else 0
-                    matches.append({
-                        "name": outlet_name,
-                        "url": outlet.get("URL", "N/A"),
-                        "contact_email": outlet.get("Editor Contact", "N/A"),
-                        "match_confidence": match_confidence,
-                        "ai_partnered": outlet.get("AI Partnered", False),
-                        "matched_keywords": list(common_words),
-                        "pitch_tips": outlet.get("Pitch Tips", "No pitch tips available."),
-                        "guidelines": outlet.get("Guidelines", "No submission guidelines available."),
-                    })
-            
-            #Sort outlets by match confidence
-            matches.sort(key=lambda x: x["match_confidence"], reverse=True)
-            # print("Matches Result:", matches)
-            return matches
-        
-        except Exception as e:
-            print(f"Error matching outlets: {str(e)}")
-            return []
-        
+    
     @staticmethod
     def get_dashboard_data():
         try:
@@ -104,7 +78,7 @@ class Pitch:
             return {
                 "pitches_sent": total_pitches,
                 "matches_found": total_matches,
-                # "my_pitches": pitches,
+                "my_pitches": pitches,
                 # "activity": activity
             }
         except Exception as e:
