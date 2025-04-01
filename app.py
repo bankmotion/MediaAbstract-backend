@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
-from werkzeug.urls import url_quote
-#from werkzeug.utils import unquote
+# from werkzeug.urls import url_quote
+from werkzeug.urls import unquote
 
 # Load environment variables first
 load_dotenv()
@@ -9,6 +9,7 @@ load_dotenv()
 from flask import Flask, jsonify
 from flask_cors import CORS
 from routes.pitch_routes import pitch_routes
+from config import BASE_URL, PORT
 
 app = Flask(__name__)
 CORS(app)
@@ -21,4 +22,4 @@ def home():
 
 
 if __name__ == "__main__":
-    app.run(host='https://mediaabstract-backend.onrender.com/', port=10000, debug=True, use_reloader=False)
+    app.run(host=BASE_URL, port=PORT, debug=True, use_reloader=False)
