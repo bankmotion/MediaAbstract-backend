@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from models.pitch import Pitch
+from supabase import create_client
 
 pitch_routes = Blueprint("pitch_routes", __name__)
 
@@ -46,7 +47,7 @@ def submit_pitch():
                     "match_confidence": match["match_confidence"]
                 }
                 serializable_matches.append(serializable_match)
-                print("=Matches=:", serializable_matches)
+                # print("=Matches=:", serializable_matches)
 
             return jsonify({
                 "success": True,
@@ -79,8 +80,42 @@ def get_dashboard_data():
     
     # dashboard_data = Pitch.get_dashboard_data(user_id)
     dashboard_data = Pitch.get_dashboard_data()
-    print("Dashboard Data: ", dashboard_data)
+    
+    # print("Dashboard Data: ", dashboard_data)
     if dashboard_data:
         return jsonify(dashboard_data), 200
     else:
         return jsonify({"error": "Failed to fetch dashboard data"}), 500
+
+@pitch_routes.route("/save_selected_outlets", methods=["POST"])
+def save_selected_outlets():
+    try:
+        data = request.json
+        pitch_id = data.get("description")
+        outlet_ids = data.get("outlets")
+
+        if not pitch_id or not outlet_ids:
+            return jsonify({"error": "Missing required fields"}), 400
+
+        success = Pitch.save_selected_outlets(pitch_id, outlet_ids)
+
+        if success:
+            return jsonify({"success": True, "message": "Outlets saved successfully"}), 200
+        else:
+            return jsonify({"success": False, "error": "Failed to save outlets"}), 500
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@pitch_routes.route("/get_saved_outlets", methods=["GET"])
+def get_saved_outlets():
+    """Fetch all saved outlets for pitches."""
+    
+    saved_outlets = Pitch.get_all_selected_outlets()
+    print("Saved_Outlets: ", saved_outlets)
+
+    if saved_outlets:
+        return jsonify(saved_outlets), 200
+    else:
+        return jsonify({"error": "Failed to fetch saved outlets data"}), 500
+
