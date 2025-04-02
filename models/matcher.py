@@ -71,8 +71,8 @@ class OutletMatcher:
             query = query.lower()
             
             # Print raw text for debugging
-            print(f"\nRaw outlet text: {outlet_text}")
-            print(f"Query text: {query}")
+            # print(f"\nRaw outlet text: {outlet_text}")
+            # print(f"Query text: {query}")
             
             # Create word sets
             outlet_words = set(outlet_text.split())
@@ -92,8 +92,8 @@ class OutletMatcher:
                 if word in outlet_text:
                     similarity += 0.1
             
-            print(f"Matching words: {outlet_words.intersection(query_words)}")
-            print(f"Similarity score: {similarity}")
+            # print(f"Matching words: {outlet_words.intersection(query_words)}")
+            # print(f"Similarity score: {similarity}")
             
             return similarity
             
@@ -112,12 +112,12 @@ class OutletMatcher:
                 return []
                 
             matches = []
-            print(f"Processing query: {query}")
-            print(f"Found {len(outlets)} outlets to match against")
+            # print(f"Processing query: {query}")
+            # print(f"Found {len(outlets)} outlets to match against")
             
             for outlet in outlets:
                 score = self.calculate_similarity_score(outlet, query)
-                print(f"Outlet: {outlet.get('Outlet Name')} - Score: {score}")
+                # print(f"Outlet: {outlet.get('Outlet Name')} - Score: {score}")
                 
                 if score >= self.threshold:
                     matches.append({
@@ -173,9 +173,9 @@ class OutletMatcher:
                 return []
             
             # Print sample of outlets data
-            print("\nSample outlet data:")
-            for outlet in response.data[:2]:  # Print first 2 outlets
-                print(f"Outlet: {outlet}")
+            # print("\nSample outlet data:")
+            # for outlet in response.data[:2]:  # Print first 2 outlets
+                # print(f"Outlet: {outlet}")
                 
             return response.data
         except Exception as e:
