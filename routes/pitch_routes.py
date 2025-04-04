@@ -47,7 +47,6 @@ def submit_pitch():
                     "match_confidence": match["match_confidence"]
                 }
                 serializable_matches.append(serializable_match)
-                # print("=Matches=:", serializable_matches)
 
             return jsonify({
                 "success": True,
@@ -59,11 +58,6 @@ def submit_pitch():
                 "success": False,
                 "error": "Failed to insert pitch"
             }), 500
-
-        # return jsonify({
-        #     "message": "Pitch submitted successfully",
-        #     "matched_outlets": matches
-        # }), 200
             
     except Exception as e:
         print(f"Error in submit_pitch: {str(e)}")
@@ -74,14 +68,8 @@ def submit_pitch():
 
 @pitch_routes.route("/get_dashboard_data", methods=["GET"])
 def get_dashboard_data():
-    # user_id = request.args.get("user_id")
-    # if not user_id:
-    #     return jsonify({"error": "User ID required"}), 400
-    
-    # dashboard_data = Pitch.get_dashboard_data(user_id)
     dashboard_data = Pitch.get_dashboard_data()
-    
-    # print("Dashboard Data: ", dashboard_data)
+
     if dashboard_data:
         return jsonify(dashboard_data), 200
     else:

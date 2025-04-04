@@ -1,34 +1,17 @@
 import os
-from supabase import create_client, Client
 from dotenv import load_dotenv
 from typing import List, Dict
-# import json
-# import re
 from datetime import datetime
-# import spacy
-# from fuzzywuzzy import fuzz
-# from sklearn.metrics.pairwise import cosine_similarity
-# import numpy as np
-from models.matcher import OutletMatcher
 from collections import defaultdict
 
-# nlp = spacy.load("en_core_web_md")
+from models.matcher import OutletMatcher
+from services.supabase_service import supabase
 
 load_dotenv()
-
-supabase_url: str = os.environ.get("SUPABASE_URL")
-supabase_key: str = os.environ.get("SUPABASE_SERVICE_KEY")
-
-if not supabase_url or not supabase_key:
-    raise ValueError("Supabase URL and Key must be set in environment variables.")
-
-supabase: Client = create_client(supabase_url, supabase_key)
-
 class Pitch:
     def __init__(self, abstract: str, industry: str):
         self.abstract = abstract
         self.industry = industry
-        # self.abstract_doc = nlp(self.abstract)
         self.matcher = OutletMatcher(supabase)
 
     def find_matching_outlets(self) -> List[Dict]:
@@ -52,7 +35,6 @@ class Pitch:
             response = supabase.table("pitches").insert(data).execute()
                         
             if response.data:
-                # print("Insert successful:", response.data)
                 return True
             return False
         
@@ -64,10 +46,7 @@ class Pitch:
     @staticmethod
     def get_dashboard_data():
         try:
-            # pitches = supabase.table("pitches").select("*").eq("user_id", user_id).execute().data
             pitches = supabase.table("pitches").select("*").execute().data
-            # print("pitches: ", pitches)            
-            # activity = supabase.table("activity_log").select("*").eq("user_id", user_id).order("timestamp", desc=True).execute().data
             total_pitches = len(pitches)
             total_matches = sum(p["matches_found"] if p["matches_found"] is not None else 0 for p in pitches)
 
@@ -98,43 +77,12 @@ class Pitch:
             response = supabase.table("selected_outlets").insert(data).execute()
             
             if response.data:
-                # print("reponse:", response.data) 
                 return True
             
         except Exception as e:
             print(f"Error saving selected outlets: {str(e)}")
             return False
         
-    # def get_all_selected_outlets() -> List[dict]:
-    #     """Fetch all saved outlets from the selected_outlets table."""
-    #     try:
-    #         response = supabase.table("selected_outlets").select("*").execute()
-    #         # print("Response: ", response)
-    #         if response.data:
-    #             grouped_outlets = defaultdict(list)
-
-    #             # Group outlet_id values under their respective pitch_id
-    #             for record in response.data:
-    #                 pitch_id = record["pitch_id"]
-    #                 outlet_id = record["outlet_id"]
-    #                 grouped_outlets[pitch_id].append(outlet_id)
-
-    #             # Convert grouped dictionary into the required list format
-    #             formatted_data = [
-    #                 {"description": pitch, "outlets": outlets}
-    #                 for pitch, outlets in grouped_outlets.items()
-    #             ]
-
-    #             return formatted_data
-                
-    #         return []
-
-    #     except Exception as e:
-    #         print(f"Error fetching saved outlets: {str(e)}")
-    #         return []
-
-
-
     def get_all_selected_outlets() -> List[dict]:
         """Fetch all saved outlets from the selected_outlets table, ensuring unique pitch groups based on created_at order."""
         try:
