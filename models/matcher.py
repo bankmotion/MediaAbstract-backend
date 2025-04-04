@@ -11,7 +11,7 @@ from datetime import datetime
 class OutletMatcher:
     def __init__(self, supabase_client: Client):
         # Load spaCy model
-        self.nlp = spacy.load("en_core_web_md")
+        self.nlp = spacy.load("en_core_web_sm")
         
         # Initialize TF-IDF vectorizer
         self.vectorizer = TfidfVectorizer(
