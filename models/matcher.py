@@ -11,7 +11,7 @@ from datetime import datetime
 class OutletMatcher:
     def __init__(self, supabase_client: Client):
         # Load spaCy model
-        self.nlp = spacy.load("en_core_web_sm")
+        self.nlp = spacy.load("en_core_web_md")
         
         # Initialize TF-IDF vectorizer
         self.vectorizer = TfidfVectorizer(
@@ -65,147 +65,152 @@ class OutletMatcher:
         return ' '.join(expanded_words)
 
     def calculate_similarity_score(self, outlet: Dict, query: str) -> float:
-        """Calculate similarity score using spaCy's semantic similarity."""
+        """Calculate similarity score with stricter semantic filtering, Jaccard fallback, audience penalty, and exact match clamping."""
         try:
-            # Process query and outlet text with spaCy
             query_doc = self.nlp(query.lower())
-            
-            # Combine outlet fields with weights
-            outlet_parts = []
-            weighted_scores = []
-            
-            # Process each field with its weight
-            for field, weight in self.field_weights.items():
-                if outlet.get(field):
-                    field_text = outlet.get(field, '').lower()
-                    field_doc = self.nlp(field_text)
-                    
-                    # Calculate semantic similarity
-                    similarity = query_doc.similarity(field_doc)
-                    weighted_scores.append(similarity * weight)
-                    
-                    # Add to outlet parts for Jaccard similarity
-                    outlet_parts.extend([field_text] * int(weight))
-            
-            # Calculate weighted average of semantic similarities
-            if weighted_scores:
-                semantic_score = sum(weighted_scores) / sum(self.field_weights.values())
-            else:
-                semantic_score = 0.0
-            
-            # Calculate Jaccard similarity as a fallback
-            outlet_text = self.preprocess_text(' '.join(outlet_parts))
             query_text = self.preprocess_text(query)
-            
-            outlet_words = set(outlet_text.split())
             query_words = set(query_text.split())
             
-            intersection = len(outlet_words.intersection(query_words))
-            union = len(outlet_words.union(query_words))
-            
-            jaccard_score = intersection / union if union > 0 else 0.0
-            
-            # Combine scores (70% semantic, 30% Jaccard)
+            outlet_parts = []
+            weighted_scores = []
+
+            for field, weight in self.field_weights.items():
+                field_text = outlet.get(field, '').lower()
+                if field_text:
+                    field_doc = self.nlp(field_text)
+                    similarity = query_doc.similarity(field_doc)
+                    
+                    # Only include similarity if it's reasonably strong
+                    if similarity > 0.6:
+                        weighted_scores.append(min(similarity, 0.95) * weight)
+                        outlet_parts.extend([field_text] * int(weight))
+
+            # Weighted semantic score
+            semantic_score = (
+                sum(weighted_scores) / sum(self.field_weights.values())
+                if weighted_scores else 0.0
+            )
+
+            # Jaccard similarity
+            outlet_text = self.preprocess_text(' '.join(outlet_parts))
+            outlet_words = set(outlet_text.split())
+            jaccard_score = (
+                len(query_words & outlet_words) / len(query_words | outlet_words)
+                if query_words | outlet_words else 0.0
+            )
+
+            # Final score: 70% semantic, 30% Jaccard
             final_score = (0.7 * semantic_score) + (0.3 * jaccard_score)
-            
-            # Add bonus for exact matches
-            for word in query_words:
-                if word in outlet_text:
-                    final_score += 0.1
-            
-            return min(1.0, final_score)  # Cap at 1.0
-            
+
+            # Cap exact match bonus
+            exact_match_bonus = min(0.1, sum(0.01 for word in query_words if word in outlet_text))
+            final_score += exact_match_bonus
+
+            # Penalize if Audience mismatch
+            query_audience = "tech" if "tech" in query.lower() else None
+            outlet_audience = outlet.get('Audience', '').lower()
+            if query_audience and query_audience not in outlet_audience:
+                final_score = max(0.0, final_score - 0.3)
+
+            return min(1.0, final_score)
+
         except Exception as e:
             print(f"Error calculating similarity: {str(e)}")
             return 0.0
 
     def find_matches(self, query: str, limit: int = 20) -> List[Dict]:
-        """Find matching outlets with improved scoring and limit."""
+        """Find and normalize matches, and provide clean match explanations."""
         try:
             outlets = self.get_outlets()
             if not outlets:
                 print("No outlets found in database")
                 return []
-                
+
             matches = []
-            
             for outlet in outlets:
                 score = self.calculate_similarity_score(outlet, query)
-                
                 if score >= self.threshold:
                     matches.append({
                         "outlet": outlet,
                         "score": score,
-                        "match_confidence": round(score * 100, 2),
+                        "match_confidence": 0.0,  # To be filled after normalization
                         "match_explanation": self._generate_match_explanation(outlet, score, query)
                     })
-            
-            # Sort by similarity score
+
+            # Normalize scores
+            if matches:
+                max_score = max(m['score'] for m in matches)
+                for m in matches:
+                    norm_score = m['score'] / max_score if max_score > 0 else 0
+                    m['score'] = round(norm_score, 4)
+                    m['match_confidence'] = round(norm_score * 100, 2)
+
             matches.sort(key=lambda x: x["score"], reverse=True)
-            
-            # Return top matches
             print(f"Found {len(matches)} matches above threshold {self.threshold}")
             return matches[:limit]
-            
+
         except Exception as e:
             print(f"Error finding matches: {str(e)}")
             return []
 
     def _generate_match_explanation(self, outlet: Dict, score: float, query: str) -> str:
-        """Generate detailed match explanations with semantic matching details."""
+        """Generate structured, short explanations for matches."""
         reasons = []
-        
-        # Score-based explanation
-        if score >= 0.7:
-            reasons.append("Excellent semantic match")
-        elif score >= 0.5:
-            reasons.append("Strong semantic match")
-        elif score >= 0.3:
-            reasons.append("Good semantic match")
-        else:
-            reasons.append("Relevant match based on keywords")
-        
-        # Process query and outlet text with spaCy
         query_doc = self.nlp(query.lower())
-        
-        # Analyze each field
-        for field, weight in self.field_weights.items():
-            if outlet.get(field):
-                field_text = outlet.get(field, '').lower()
+
+        # General match quality
+        if score >= 0.8:
+            reasons.append("Excellent match")
+        elif score >= 0.6:
+            reasons.append("Strong match")
+        elif score >= 0.4:
+            reasons.append("Relevant match")
+        else:
+            reasons.append("Keyword-based match")
+
+        # Entity and token similarity
+        for field in self.field_weights:
+            field_text = outlet.get(field, '').lower()
+            if field_text:
                 field_doc = self.nlp(field_text)
-                
-                # Find matching entities
+
+                # Named entity match
                 query_entities = {ent.text.lower() for ent in query_doc.ents}
                 field_entities = {ent.text.lower() for ent in field_doc.ents}
-                matching_entities = query_entities & field_entities
-                
-                if matching_entities:
-                    reasons.append(f"Matching {field} entities: {', '.join(matching_entities)}")
-                
-                # Find similar terms using spaCy
+                matches = query_entities & field_entities
+                if matches:
+                    reasons.append(f"{field}: entity match ({', '.join(matches)})")
+
+                # Token similarity
                 similar_terms = []
-                for query_token in query_doc:
-                    if not query_token.is_stop and not query_token.is_punct:
-                        for field_token in field_doc:
-                            if not field_token.is_stop and not field_token.is_punct:
-                                if query_token.similarity(field_token) > 0.7:
-                                    similar_terms.append(f"{query_token.text} ≈ {field_token.text}")
-                
+                for qt in query_doc:
+                    if not qt.is_stop and not qt.is_punct:
+                        for ft in field_doc:
+                            if not ft.is_stop and not ft.is_punct:
+                                if qt.similarity(ft) > 0.7:
+                                    similar_terms.append(f"{qt.text} ≈ {ft.text}")
                 if similar_terms:
-                    reasons.append(f"Similar terms in {field}: {', '.join(similar_terms[:3])}")
-        
-        # Add community notes if available
+                    reasons.append(f"{field}: similar terms ({', '.join(similar_terms[:3])})")
+
+        # Audience logic
+        query_audience = "tech" if "tech" in query.lower() else None
+        outlet_audience = outlet.get("Audience", "").lower()
+        if query_audience:
+            if query_audience in outlet_audience:
+                reasons.append("Audience match: Tech")
+            else:
+                reasons.append("Audience mismatch: not Tech")
+
+        # Community data
         if self.feedback_data:
-            outlet_feedback = [f for f in self.feedback_data if f.get('outlet_id') == outlet.get('id')]
-            if outlet_feedback:
-                success_rate = sum(1 for f in outlet_feedback if f.get('success')) / len(outlet_feedback)
-                reasons.append(f"Community success rate: {success_rate:.0%}")
-                
-                # Add recent notes
-                recent_notes = [f.get('notes') for f in outlet_feedback if f.get('notes')][-2:]
-                if recent_notes:
-                    reasons.append(f"Recent community notes: {'; '.join(recent_notes)}")
-        
+            fb = [f for f in self.feedback_data if f.get('outlet_id') == outlet.get('id')]
+            if fb:
+                success_rate = sum(1 for f in fb if f.get('success')) / len(fb)
+                reasons.append(f"Community success rate: {round(success_rate * 100)}%")
+                notes = [f['notes'] for f in fb if f.get('notes')]
+                if notes:
+                    reasons.append(f"Notes: {'; '.join(notes[-2:])}")
+
         return "; ".join(reasons)
 
     def get_outlets(self) -> List[Dict]:
