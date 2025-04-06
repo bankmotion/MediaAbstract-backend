@@ -1,6 +1,8 @@
 from flask import Blueprint, request, jsonify
 from models.pitch import Pitch
 from supabase import create_client
+from datetime import datetime
+import os
 
 pitch_routes = Blueprint("pitch_routes", __name__)
 
@@ -40,6 +42,8 @@ def submit_pitch():
                         "contact_email": match["outlet"].get("Editor Contact", ""),
                         "ai_partnered": match["outlet"].get("AI Partnered", ""),
                         "url": match["outlet"].get("URL", ""),
+                        "guidelines": match["outlet"].get("Guidelines", ""),
+                        "pitch_tips": match["outlet"].get("Pitch Tips", ""),
                         # Add other relevant outlet fields
                     },
                     "score": float(match["score"]),  # Convert to float to ensure serializability
@@ -100,10 +104,16 @@ def get_saved_outlets():
     """Fetch all saved outlets for pitches."""
     
     saved_outlets = Pitch.get_all_selected_outlets()
-    print("Saved_Outlets: ", saved_outlets)
 
     if saved_outlets:
         return jsonify(saved_outlets), 200
     else:
         return jsonify({"error": "Failed to fetch saved outlets data"}), 500
 
+@pitch_routes.route("/get_all_outlets", methods=["GET"])
+def get_all_outlets():
+    outlets = Pitch.get_all_outlets()
+    if outlets:
+        return jsonify(outlets), 200
+    else:
+        return jsonify({"error": "Failed to fetch all outlets"}), 500

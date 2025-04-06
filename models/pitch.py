@@ -130,3 +130,35 @@ class Pitch:
         except Exception as e:
             print(f"Error fetching saved outlets: {str(e)}")
             return []
+
+    def get_all_outlets() -> List[dict]:
+        """Fetch all outlets from the outlets table."""
+        try:
+            response = supabase.table("outlets").select("*").execute()
+            
+            if not response.data:
+                return []
+                
+            outlets = []
+            for outlet in response.data:
+                formatted_outlet = {
+                    "name": outlet.get("Outlet Name"),
+                    "audience": outlet.get("Audience"),
+                    "section_name": outlet.get("Section Name"),
+                    "contact_email": outlet.get("Editor Contact"),
+                    "ai_partnered": outlet.get("AI Partnered"),
+                    "url": outlet.get("URL"),
+                    "guidelines": outlet.get("Guidelines"),
+                    "pitch_tips": outlet.get("Pitch Tips"),
+                    "keywords": outlet.get("Keywords"),
+                    "last_updated": outlet.get("Last Updated"),
+                    "prestige": outlet.get("Prestige"),
+                }
+                
+                outlets.append(formatted_outlet)
+            
+            return outlets
+            
+        except Exception as e:
+            print(f"Error fetching all outlets: {str(e)}")
+            return []
