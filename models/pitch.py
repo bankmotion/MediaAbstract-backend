@@ -16,8 +16,7 @@ class Pitch:
 
     def find_matching_outlets(self) -> List[Dict]:
         """Find matching outlets for the pitch."""
-        query = f"{self.abstract} {self.industry}"
-        return self.matcher.find_matches(query)
+        return self.matcher.find_matches(self.abstract, self.industry)
 
     def insert_pitch(self):
         try:
