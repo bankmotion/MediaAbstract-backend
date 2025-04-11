@@ -9,7 +9,8 @@ load_dotenv()
 from flask import Flask, jsonify
 from flask_cors import CORS
 from routes.pitch_routes import pitch_routes
-from routes.auth import auth_bp
+from routes.auth_routes import auth_bp
+from routes.payment_routes import payment_bp
 from config import HOST, PORT
 
 app = Flask(__name__)
@@ -17,6 +18,7 @@ CORS(app)
 
 app.register_blueprint(pitch_routes)
 app.register_blueprint(auth_bp, url_prefix="/api")
+app.register_blueprint(payment_bp)
 
 @app.route("/", methods=["GET"])
 def home():

@@ -513,7 +513,7 @@ class OutletMatcher:
                 reasons.append("Good match with specific focus required")
             else:
                 reasons.append("Potential match with careful targeting needed")
-            
+        
             return "; ".join(reasons)
             
         except Exception as e:

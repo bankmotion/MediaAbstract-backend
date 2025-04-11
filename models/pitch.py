@@ -108,8 +108,12 @@ class Pitch:
                         if current_group:  # Save the previous group before starting a new one
                             grouped_outlets.append(current_group)
                         
-                        # Start a new group
-                        current_group = {"description": pitch_id, "outlets": []}
+                        # Start a new group with selected date
+                        current_group = {
+                            "description": pitch_id, 
+                            "outlets": [],
+                            "selected_date": created_at.strftime("%Y-%m-%d %H:%M:%S")  # Format date for frontend
+                        }
 
                     # Append the outlet to the current group
                     current_group["outlets"].append(outlet_id)
@@ -121,6 +125,8 @@ class Pitch:
                 # Append the last group if not empty
                 if current_group:
                     grouped_outlets.append(current_group)
+
+                # print("grouped_outlets: ", grouped_outlets)
 
                 return grouped_outlets
 
