@@ -23,16 +23,19 @@ class Pitch:
             matched_outlets = self.find_matching_outlets()
             match_count = len(matched_outlets)
 
-            data = {
+            # Insert pitch data
+            pitch_data = {
                 "abstract": self.abstract,
                 "industry": self.industry,
                 "status": "Submitted",
                 "matches_found": match_count,
+                "matched_outlets": matched_outlets,  # Store the matched outlets data
                 "created_at": datetime.utcnow().isoformat()
             }
             
-            response = supabase.table("pitches").insert(data).execute()
-                        
+            # Insert pitch and get the ID
+            response = supabase.table("pitches").insert(pitch_data).execute()
+            
             if response.data:
                 return True
             return False
@@ -45,19 +48,45 @@ class Pitch:
     @staticmethod
     def get_dashboard_data():
         try:
-            pitches = supabase.table("pitches").select("*").execute().data
+            pitches = supabase.table("pitches").select("*").order("created_at", desc=True).execute().data
             total_pitches = len(pitches)
             total_matches = sum(p["matches_found"] if p["matches_found"] is not None else 0 for p in pitches)
 
-        
-            print("total pitches: ", total_pitches)
-            print("total matches: ", total_matches)
+            # Format pitch data for frontend
+            formatted_pitches = []
+            for pitch in pitches:
+                # Get first few words of abstract as title (or use full abstract if short)
+                title_words = pitch["abstract"].split()[:8]  # First 8 words
+                title = " ".join(title_words) + ("..." if len(pitch["abstract"].split()) > 8 else "")
+
+                # Format matched outlets data
+                matched_outlets = []
+                if pitch.get("matched_outlets"):
+                    for outlet_match in pitch["matched_outlets"]:
+                        outlet = outlet_match.get("outlet", {})
+                        outlet_name = outlet.get("Outlet Name", "")
+                        match_score = outlet_match.get("score", 0)
+                        match_percentage = f"{int(match_score * 100)}%"
+                        matched_outlets.append({
+                            "name": outlet_name,
+                            "match_percentage": match_percentage
+                        })
+
+                formatted_pitch = {
+                    "id": pitch["id"],
+                    "title": title,
+                    "abstract": pitch["abstract"],
+                    "industry": pitch["industry"],
+                    "status": "Matched" if matched_outlets else "Submitted",
+                    "matched_outlets": matched_outlets,
+                    "created_at": pitch["created_at"]
+                }
+                formatted_pitches.append(formatted_pitch)
 
             return {
                 "pitches_sent": total_pitches,
                 "matches_found": total_matches,
-                "my_pitches": pitches,
-                # "activity": activity
+                "my_pitches": formatted_pitches
             }
         except Exception as e:
             print(f"Error fetching dashboard data: {str(e)}")

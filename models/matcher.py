@@ -18,11 +18,11 @@ class OutletMatcher:
             stop_words='english',
             ngram_range=(1, 2),
             min_df=1,
-            max_df=1.0  # Adjusted from 0.95 to 1.0 to handle small document sets
+            max_df=1.0
         )
         
         self.supabase = supabase_client
-        self.threshold = 0.3
+        self.threshold = 0.15  # Lowered threshold to allow more matches
         
         # Initialize data structures for comprehensive learning
         self.learned_data = {
@@ -33,18 +33,20 @@ class OutletMatcher:
             'pitch_tips': set(),
             'topics': set(),
             'content_requirements': {},
-            'outlet_specializations': {}
+            'outlet_specializations': {},
+            'recent_articles': {}
         }
         
-        # Dynamic weights that will be adjusted based on data patterns
+        # Optimized field weights for wider score range
         self.field_weights = {
-            'Industry Match': 3.5,      # Highest priority - correct industry targeting
-            'Keywords': 3.0,            # Direct topic relevance
-            'Audience': 2.8,            # Target audience match
-            'Content Type': 2.5,        # Section and format match
-            'Requirements': 2.0,        # Guidelines and pitch tips
-            'Outlet Expertise': 2.0,    # Outlet's specialized areas
-            'Prestige': 1.5            # Publication quality
+            'Industry Match': 4.0,      # Increased for stronger industry influence
+            'Keywords': 3.5,            # Increased for stronger keyword influence
+            'News Match': 3.0,          # Increased for stronger news influence
+            'Audience': 2.5,            # Kept same
+            'Content Type': 2.0,        # Kept same
+            'Requirements': 2.0,        # Kept same
+            'Outlet Expertise': 2.0,    # Kept same
+            'Prestige': 1.5            # Kept same
         }
         
         # Actual prestige levels from data
@@ -240,41 +242,32 @@ class OutletMatcher:
         try:
             scores = {}
             
-            # 1. Industry Match Score
-            industry_score = self._calculate_industry_match(outlet, industry)
-            scores['Industry Match'] = industry_score * self.field_weights['Industry Match']
+            # Calculate all component scores
+            scores['Industry Match'] = self._calculate_industry_match(outlet, industry)
+            scores['Keywords'] = self._calculate_keyword_relevance(outlet, query)
+            scores['News Match'] = self._calculate_news_match(outlet, query)
+            scores['Audience'] = self._calculate_audience_match(outlet, query, industry)
+            scores['Content Type'] = self._calculate_content_compatibility(outlet, query)
+            scores['Requirements'] = self._calculate_requirements_match(outlet, query)
+            scores['Outlet Expertise'] = self._calculate_outlet_expertise_match(outlet, query, industry)
+            scores['Prestige'] = self._calculate_prestige_score(outlet)
             
-            # 2. Keyword and Topic Relevance
-            keyword_score = self._calculate_keyword_relevance(outlet, query)
-            scores['Keywords'] = keyword_score * self.field_weights['Keywords']
-            
-            # 3. Audience Match
-            audience_score = self._calculate_audience_match(outlet, query, industry)
-            scores['Audience'] = audience_score * self.field_weights['Audience']
-            
-            # 4. Content Type Compatibility
-            content_score = self._calculate_content_compatibility(outlet, query)
-            scores['Content Type'] = content_score * self.field_weights['Content Type']
-            
-            # 5. Requirements Match
-            req_score = self._calculate_requirements_match(outlet, query)
-            scores['Requirements'] = req_score * self.field_weights['Requirements']
-            
-            # 6. Outlet Expertise Score
-            expertise_score = self._calculate_outlet_expertise_match(outlet, query, industry)
-            scores['Outlet Expertise'] = expertise_score * self.field_weights['Outlet Expertise']
-            
-            # 7. Prestige Factor
-            prestige_score = self._calculate_prestige_score(outlet)
-            scores['Prestige'] = prestige_score * self.field_weights['Prestige']
-            
-            # Calculate weighted average
+            # Calculate weighted average with improved normalization
             total_weight = sum(self.field_weights.values())
-            final_score = sum(scores.values()) / total_weight
+            weighted_scores = {k: v * self.field_weights[k] for k, v in scores.items()}
+            raw_score = sum(weighted_scores.values()) / total_weight
             
-            # Apply bonus for exceptional matches
-            if self._check_exceptional_match(outlet, query, industry):
-                final_score = min(1.0, final_score * 1.2)
+            # Apply exponential score boosting for wider gaps
+            if raw_score > 0.8:
+                final_score = min(1.0, raw_score * 1.6)  # 60% boost for excellent matches
+            elif raw_score > 0.6:
+                final_score = min(1.0, raw_score * 1.4)  # 40% boost for strong matches
+            elif raw_score > 0.4:
+                final_score = min(1.0, raw_score * 1.2)  # 20% boost for good matches
+            elif raw_score > 0.2:
+                final_score = raw_score  # No boost for average matches
+            else:
+                final_score = raw_score * 0.8  # Penalty for weak matches
             
             return final_score
             
@@ -295,9 +288,9 @@ class OutletMatcher:
             audience_match = industry.lower() in outlet_audience
             section_match = industry.lower() in outlet_section
             
-            # Calculate weighted score
+            # Calculate weighted score with improved matching
             score = 0.0
-            if keyword_match: score += 0.5
+            if keyword_match: score += 0.7  # Increased from 0.6
             if audience_match: score += 0.3
             if section_match: score += 0.2
             
@@ -305,7 +298,7 @@ class OutletMatcher:
             if outlet.get('Outlet Name') in self.learned_data['outlet_specializations']:
                 specialization = self.learned_data['outlet_specializations'][outlet.get('Outlet Name')]
                 if industry.lower() in ' '.join(specialization['topics']).lower():
-                    score = min(1.0, score * 1.3)
+                    score = min(1.0, score * 1.5)  # Increased from 1.4
             
             return score
             
@@ -324,13 +317,13 @@ class OutletMatcher:
             # Calculate semantic similarity
             semantic_score = query_doc.similarity(outlet_doc)
             
-            # Calculate keyword overlap
+            # Calculate keyword overlap with improved matching
             query_words = set(query.lower().split())
             outlet_words = set(outlet_keywords.split(','))
             overlap_score = len(query_words & outlet_words) / len(query_words | outlet_words) if outlet_words else 0
             
-            # Combine scores with weights
-            final_score = (semantic_score * 0.7) + (overlap_score * 0.3)
+            # Combine scores with adjusted weights
+            final_score = (semantic_score * 0.5) + (overlap_score * 0.5)  # Equal weights
             
             return final_score
             
@@ -441,84 +434,76 @@ class OutletMatcher:
             print(f"Error calculating prestige score: {str(e)}")
             return 0.0
 
-    def _check_exceptional_match(self, outlet: Dict, query: str, industry: str) -> bool:
-        """Check if the match is exceptional with advanced matching."""
+    def _calculate_news_match(self, outlet: Dict, query: str) -> float:
+        """Calculate news match score based on recent articles."""
         try:
-            # Get outlet's exceptional indicators
             outlet_name = outlet.get('Outlet Name')
-            if outlet_name:
-                exceptional_indicators = {
-                    'exceptional_keywords': ['exceptional', 'unique', 'rare', 'rare opportunity'],
-                    'exceptional_audiences': ['exceptional', 'unique', 'rare', 'rare opportunity'],
-                    'exceptional_sections': ['exceptional', 'unique', 'rare', 'rare opportunity'],
-                    'exceptional_guidelines': ['exceptional', 'unique', 'rare', 'rare opportunity'],
-                    'exceptional_pitch_tips': ['exceptional', 'unique', 'rare', 'rare opportunity']
-                }
+            if not outlet_name or outlet_name not in self.learned_data['recent_articles']:
+                return 0.0
                 
-                # Check exceptional indicators
-                for field, indicators in exceptional_indicators.items():
-                    if any(ind in query.lower() for ind in indicators):
-                        return True
+            recent_articles = self.learned_data['recent_articles'][outlet_name]
+            if not recent_articles:
+                return 0.0
+                
+            # Calculate similarity with each article
+            query_doc = self.nlp(query.lower())
+            max_similarity = 0.0
             
-            return False
+            for article in recent_articles:
+                article_text = f"{article.get('title', '')} {article.get('description', '')}"
+                article_doc = self.nlp(article_text.lower())
+                similarity = query_doc.similarity(article_doc)
+                max_similarity = max(max_similarity, similarity)
+            
+            return max_similarity
             
         except Exception as e:
-            print(f"Error checking exceptional match: {str(e)}")
-            return False
+            print(f"Error calculating news match: {str(e)}")
+            return 0.0
 
     def _generate_match_explanation(self, outlet: Dict, score: float, query: str, industry: str) -> str:
-        """Generate detailed match explanation with specific insights."""
+        """Generate clear and concise match explanation."""
         try:
             reasons = []
-            
-            # Outlet Quality and Prestige
-            prestige = outlet.get('Prestige', '')
-            if prestige:
-                reasons.append(f"{prestige} prestige publication")
             
             # Industry Match
             industry_match = self._calculate_industry_match(outlet, industry)
             if industry_match > 0.8:
-                reasons.append(f"Strong {industry} industry focus")
+                reasons.append(f"Perfect industry fit: {industry}")
             elif industry_match > 0.5:
-                reasons.append(f"Relevant to {industry} sector")
+                reasons.append(f"Good industry match: {industry}")
             
             # Keyword Matches
             keywords = outlet.get('Keywords', '').lower().split(',')
             matching_keywords = [kw.strip() for kw in keywords if kw.strip() in query.lower()]
             if matching_keywords:
-                reasons.append(f"Matching topics: {', '.join(matching_keywords)}")
+                reasons.append(f"Topics match: {', '.join(matching_keywords[:3])}")
+            
+            # News Match
+            news_score = self._calculate_news_match(outlet, query)
+            if news_score > 0.7:
+                reasons.append("Strong recent coverage")
+            elif news_score > 0.4:
+                reasons.append("Recent relevant coverage")
             
             # Audience Match
             audience = outlet.get('Audience', '')
             if audience:
-                reasons.append(f"Target audience: {audience}")
+                reasons.append(f"Targets: {audience}")
             
-            # Content Requirements
-            if outlet.get('Outlet Name') in self.learned_data['content_requirements']:
-                reqs = self.learned_data['content_requirements'][outlet.get('Outlet Name')]
-                if reqs['word_count']:
-                    reasons.append(f"Word count requirement: {reqs['word_count']} words")
-                if reqs['format']:
-                    reasons.append(f"Preferred format: {reqs['format']}")
-                if reqs['style']:
-                    reasons.append(f"Writing style: {reqs['style']}")
-            
-            # Match Quality Indicator
+            # Match Quality Summary
             if score >= 0.8:
-                reasons.append("Excellent match for your content")
+                reasons.append("Excellent match")
             elif score >= 0.6:
-                reasons.append("Strong potential match")
+                reasons.append("Strong match")
             elif score >= 0.4:
-                reasons.append("Good match with specific focus required")
-            else:
-                reasons.append("Potential match with careful targeting needed")
-        
-            return "; ".join(reasons)
+                reasons.append("Good potential")
+            
+            return " • ".join(reasons)
             
         except Exception as e:
             print(f"Error generating match explanation: {str(e)}")
-            return "Match explanation unavailable"
+            return "Match details unavailable"
 
     def get_outlets(self) -> List[Dict]:
         """Fetch outlets with error handling."""
@@ -671,49 +656,42 @@ class OutletMatcher:
     def find_matches(self, query: str, industry: str, limit: int = 20) -> List[Dict]:
         """Find matches with comprehensive scoring and ranking."""
         try:
-            # Get all outlets
             outlets = self.get_outlets()
             if not outlets:
-                print("No outlets found in database")
                 return []
 
-            # Calculate scores and prepare matches
             matches = []
             for outlet in outlets:
-                # Calculate comprehensive similarity score
                 score = self.calculate_similarity_score(outlet, query, industry)
                 
-                # Only include matches above threshold
                 if score >= self.threshold:
+                    # Apply exponential display boost
+                    if score > 0.8:
+                        display_score = min(100, score * 130)  # 30% boost for excellent matches
+                    elif score > 0.6:
+                        display_score = min(100, score * 125)  # 25% boost for strong matches
+                    elif score > 0.4:
+                        display_score = min(100, score * 120)  # 20% boost for good matches
+                    else:
+                        display_score = min(100, score * 115)  # 15% boost for average matches
+                    
                     matches.append({
                         "outlet": outlet,
                         "score": score,
-                        "match_confidence": 0.0,  # Will be normalized
+                        "match_confidence": round(display_score, 2),
                         "match_explanation": self._generate_match_explanation(outlet, score, query, industry)
                     })
 
-            # Normalize scores
-            if matches:
-                max_score = max(m['score'] for m in matches)
-                min_score = min(m['score'] for m in matches)
-                score_range = max_score - min_score
-                
-                for match in matches:
-                    if score_range > 0:
-                        # Normalize to 0-100 range with better distribution
-                        normalized_score = (match['score'] - min_score) / score_range
-                        match['match_confidence'] = round(normalized_score * 100, 2)
-                    else:
-                        # If all scores are the same, assign based on threshold
-                        match['match_confidence'] = round((match['score'] / self.threshold) * 100, 2)
-                    
-                    # Round the raw score for cleaner display
-                    match['score'] = round(match['score'], 4)
-
-            # Sort by score (descending) and apply limit
             matches.sort(key=lambda x: x['score'], reverse=True)
             return matches[:limit]
 
         except Exception as e:
             print(f"Error finding matches: {str(e)}")
             return []
+
+    def update_recent_articles(self, outlet_name: str, articles: List[Dict]):
+        """Update recent articles for an outlet."""
+        try:
+            self.learned_data['recent_articles'][outlet_name] = articles
+        except Exception as e:
+            print(f"Error updating recent articles: {str(e)}")

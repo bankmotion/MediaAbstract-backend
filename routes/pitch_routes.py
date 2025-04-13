@@ -4,6 +4,9 @@ from supabase import create_client
 from datetime import datetime
 import os
 
+# Initialize Supabase client
+supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_KEY"))
+
 pitch_routes = Blueprint("pitch_routes", __name__)
 
 @pitch_routes.route("/submit_pitch", methods=["POST"])
@@ -23,15 +26,15 @@ def submit_pitch():
         # Find matching outlets
         matches = pitch.find_matching_outlets()
         
-        # Insert pitch into database
+        # Insert pitch and matches into database
         success = pitch.insert_pitch()
 
         if not success:
             return jsonify({"error": "Failed to submit pitch"}), 500
         
-
         if success:
-            # Convert matches to serializable format
+            
+            # Format the matches for response
             serializable_matches = []
             for match in matches:
                 serializable_match = {
