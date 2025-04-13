@@ -65,11 +65,17 @@ class Pitch:
                     for outlet_match in pitch["matched_outlets"]:
                         outlet = outlet_match.get("outlet", {})
                         outlet_name = outlet.get("Outlet Name", "")
+                        outlet_url = outlet.get("URL", "")
+                        outlet_email = outlet.get("Editor Contact", "")
+                        outlet_ai_partnered = outlet.get("AI Partnered", "")
                         match_score = outlet_match.get("score", 0)
                         match_percentage = f"{int(match_score * 100)}%"
                         matched_outlets.append({
                             "name": outlet_name,
-                            "match_percentage": match_percentage
+                            "match_percentage": match_percentage,
+                            "url": outlet_url,
+                            "email": outlet_email,
+                            "ai_partnered": outlet_ai_partnered,
                         })
 
                 formatted_pitch = {
