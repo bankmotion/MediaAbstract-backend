@@ -27,7 +27,7 @@ class Pitch:
             pitch_data = {
                 "abstract": self.abstract,
                 "industry": self.industry,
-                "status": "Submitted",
+                "status": "Matched",
                 "matches_found": match_count,
                 "matched_outlets": matched_outlets,  # Store the matched outlets data
                 "created_at": datetime.utcnow().isoformat()
@@ -37,12 +37,12 @@ class Pitch:
             response = supabase.table("pitches").insert(pitch_data).execute()
             
             if response.data:
-                return True
-            return False
+                return response.data[0]["id"]  # Return the ID of the inserted pitch
+            return None
         
         except Exception as e:
             print(f"Detailed error inserting pitch: {str(e)}")
-            return False
+            return None
         
     
     @staticmethod
@@ -70,12 +70,15 @@ class Pitch:
                         outlet_ai_partnered = outlet.get("AI Partnered", "")
                         match_score = outlet_match.get("score", 0)
                         match_percentage = f"{int(match_score * 100)}%"
+                        match_explanation = outlet_match.get("match_explanation", "")
+
                         matched_outlets.append({
                             "name": outlet_name,
                             "match_percentage": match_percentage,
                             "url": outlet_url,
                             "email": outlet_email,
                             "ai_partnered": outlet_ai_partnered,
+                            "match_explanation": match_explanation
                         })
 
                 formatted_pitch = {
@@ -83,7 +86,7 @@ class Pitch:
                     "title": title,
                     "abstract": pitch["abstract"],
                     "industry": pitch["industry"],
-                    "status": "Matched" if matched_outlets else "Submitted",
+                    "status": pitch["status"],
                     "matched_outlets": matched_outlets,
                     "created_at": pitch["created_at"]
                 }
@@ -202,3 +205,18 @@ class Pitch:
         except Exception as e:
             print(f"Error fetching all outlets: {str(e)}")
             return []
+
+    @staticmethod
+    def update_pitch_status(pitch_id: str) -> bool:
+        """Update the status of a pitch to Submitted."""
+        try:
+            # Update the pitch status in the database
+            update_response = supabase.table("pitches").update(
+                {"status": "Submitted"}
+            ).eq("id", pitch_id).execute()
+            
+            return bool(update_response.data)
+            
+        except Exception as e:
+            print(f"Error updating pitch status: {str(e)}")
+            return False

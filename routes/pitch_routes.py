@@ -27,47 +27,85 @@ def submit_pitch():
         matches = pitch.find_matching_outlets()
         
         # Insert pitch and matches into database
-        success = pitch.insert_pitch()
+        pitch_id = pitch.insert_pitch()
 
-        if not success:
+        if pitch_id is None:
             return jsonify({"error": "Failed to submit pitch"}), 500
         
-        if success:
-            
-            # Format the matches for response
-            serializable_matches = []
-            for match in matches:
-                serializable_match = {
-                    "outlet": {
-                        "name": match["outlet"].get("Outlet Name", ""),
-                        "audience": match["outlet"].get("Audience", ""),
-                        "section_name": match["outlet"].get("Section Name", ""),
-                        "contact_email": match["outlet"].get("Editor Contact", ""),
-                        "ai_partnered": match["outlet"].get("AI Partnered", ""),
-                        "url": match["outlet"].get("URL", ""),
-                        "guidelines": match["outlet"].get("Guidelines", ""),
-                        "pitch_tips": match["outlet"].get("Pitch Tips", ""),
-                        # Add other relevant outlet fields
-                    },
-                    "score": float(match["score"]),  # Convert to float to ensure serializability
-                    "match_explanation": match["match_explanation"],
-                    "match_confidence": match["match_confidence"]
-                }
-                serializable_matches.append(serializable_match)
+        # Format the matches for response
+        serializable_matches = []
+        for match in matches:
+            serializable_match = {
+                "pitch_id": pitch_id,
+                "outlet": {
+                      # Add pitch_id to each match
+                    "name": match["outlet"].get("Outlet Name", ""),
+                    "audience": match["outlet"].get("Audience", ""),
+                    "section_name": match["outlet"].get("Section Name", ""),
+                    "contact_email": match["outlet"].get("Editor Contact", ""),
+                    "ai_partnered": match["outlet"].get("AI Partnered", ""),
+                    "url": match["outlet"].get("URL", ""),
+                    "guidelines": match["outlet"].get("Guidelines", ""),
+                    "pitch_tips": match["outlet"].get("Pitch Tips", ""),
+                    # Add other relevant outlet fields
+                },
+                "score": float(match["score"]),  # Convert to float to ensure serializability
+                "match_explanation": match["match_explanation"],
+                "match_confidence": match["match_confidence"]
+            }
+            serializable_matches.append(serializable_match)
 
+        return jsonify({
+            "success": True,
+            "message": "Pitch submitted successfully",
+            "pitch_id": pitch_id,
+            "matched_outlets": serializable_matches
+        }), 200
+            
+    except Exception as e:
+        print(f"Error in submit_pitch: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": f"Internal server error: {str(e)}"
+        }), 500
+
+@pitch_routes.route("/update_pitch_status", methods=["PUT"])
+def update_pitch_status():
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+            
+        # Validate required fields
+        pitch_id = data.get("pitchId")
+        outlet_name = data.get("outletName")
+        status = data.get("status")
+        
+        print(f"Received data: {data}")
+        print(f"Pitch ID: {pitch_id}")
+        print(f"Outlet Name: {outlet_name}")
+        print(f"Status: {status}")
+        
+        if not all([pitch_id, outlet_name, status]):
+            return jsonify({"error": "Missing required fields: pitchId, outletName, or status"}), 400
+        
+        # Update the pitch status
+        success = Pitch.update_pitch_status(pitch_id)
+
+        print(f"Success: {success}")
+
+        if success:
             return jsonify({
                 "success": True,
-                "message": "Pitch submitted successfully",
-                "matched_outlets": serializable_matches
+                "message": f"Successfully updated status to {status} for outlet {outlet_name}"
             }), 200
         else:
             return jsonify({
                 "success": False,
-                "error": "Failed to insert pitch"
+                "error": "Failed to update pitch status"
             }), 500
             
     except Exception as e:
-        print(f"Error in submit_pitch: {str(e)}")
         return jsonify({
             "success": False,
             "error": f"Internal server error: {str(e)}"
