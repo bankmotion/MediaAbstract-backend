@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1")  # Default to localhost
-HOST = os.getenv("HOST", "127.0.0.1")  
+HOST = os.getenv("HOST", "0.0.0.0")  # Default to 0.0.0.0 to allow external connections
 PORT = int(os.getenv("PORT", 10000))
 
 

@@ -111,10 +111,45 @@ def update_pitch_status():
             "error": f"Internal server error: {str(e)}"
         }), 500
 
+@pitch_routes.route("/update_pitch_status_and_notes", methods=["PUT"])
+def update_pitch_status_and_notes():
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+            
+        # Validate required fields
+        pitch_id = data.get("pitchId")
+        status = data.get("status")
+        notes = data.get("notes")
+        print(f"Received data: {data}")
+        if not all([pitch_id, status]):
+            return jsonify({"error": "Missing required fields: pitchId or status"}), 400
+        
+        # Update the pitch status and notes
+        success = Pitch.update_pitch_status_and_notes(pitch_id, status, notes)
+
+        if success:
+            return jsonify({
+                "success": True,
+                "message": "Successfully updated pitch status and notes"
+            }), 200
+        else:
+            return jsonify({
+                "success": False,
+                "error": "Failed to update pitch status and notes"
+            }), 500
+            
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"Internal server error: {str(e)}"
+        }), 500
+
 @pitch_routes.route("/get_dashboard_data", methods=["GET"])
 def get_dashboard_data():
     dashboard_data = Pitch.get_dashboard_data()
-
+    
     if dashboard_data:
         return jsonify(dashboard_data), 200
     else:
@@ -158,3 +193,30 @@ def get_all_outlets():
         return jsonify(outlets), 200
     else:
         return jsonify({"error": "Failed to fetch all outlets"}), 500
+
+
+@pitch_routes.route("/delete_saved_pitch", methods=["DELETE"])
+def delete_saved_pitch():
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        print(f"Received data: {data}")
+        description = data.get("description")
+        selected_date = data.get("selected_date")
+        
+        if not all([description, selected_date]):
+            return jsonify({"error": "Missing required fields: description or selected_date"}), 400
+
+        success = Pitch.delete_saved_pitch(description, selected_date)
+
+        if success:
+            return jsonify({"success": True, "message": "Saved pitch deleted successfully."}), 200
+        else:
+            return jsonify({"success": False, "error": "Failed to delete saved pitch."}), 500
+
+    except Exception as e:
+        print(f"Error deleting saved pitch: {str(e)}")
+        return jsonify({"success": False, "error": f"Internal server error: {str(e)}"}), 500
+
+        

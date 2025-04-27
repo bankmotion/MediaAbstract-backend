@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 from typing import List, Dict
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import defaultdict
 
 from models.matcher import OutletMatcher
@@ -151,6 +151,7 @@ class Pitch:
                             "description": pitch_id, 
                             "outlets": [],
                             "selected_date": created_at.strftime("%Y-%m-%d %H:%M:%S")  # Format date for frontend
+                            # "selected_date": created_at
                         }
 
                     # Append the outlet to the current group
@@ -219,4 +220,73 @@ class Pitch:
             
         except Exception as e:
             print(f"Error updating pitch status: {str(e)}")
+            return False
+
+    @staticmethod
+    def update_pitch_status_and_notes(pitch_id: str, status: str, notes: str) -> bool:
+        """Update both the status and notes of a pitch."""
+        try:
+            # Update the pitch status and notes in the database
+            response = supabase.table("pitches").update(
+                {
+                    "status": status,
+                    "notes": notes
+                }
+            ).eq("id", pitch_id).execute()
+            
+            print("response: ", response)
+            # Check if the update was successful by verifying the response data
+            if response and response.data:
+                return True
+            return False
+            
+        except Exception as e:
+            print(f"Error updating pitch status and notes: {str(e)}")
+            return False
+
+    @staticmethod
+    def delete_saved_pitch(description: str, selected_date: str) -> bool:
+        """
+        Delete saved outlets where pitch_id matches and created_at matches the given second (ignoring fractional seconds and timezone).
+        Args:
+            description (str): The pitch_id to match
+            selected_date (str): The created_at timestamp to match (format: YYYY-MM-DD HH:MM:SS)
+        Returns:
+            bool: True if deletion was successful, False otherwise
+        """
+        try:
+            if not description or not selected_date:
+                print("Error: Both description and selected_date are required")
+                return False
+
+            # Parse the input date string (no timezone/fractional)
+            try:
+                dt = datetime.strptime(selected_date, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                print(f"Error: Invalid date format for selected_date: {selected_date}. Expected format: YYYY-MM-DD HH:MM:SS")
+                return False
+
+            # Build range for the second
+            start = dt.isoformat()
+            end = (dt + timedelta(seconds=1)).isoformat()
+
+            delete_response = (
+                supabase
+                .table("selected_outlets")
+                .delete()
+                .eq("pitch_id", description)
+                .gte("created_at", start)
+                .lt("created_at", end)
+                .execute()
+            )
+
+            if not delete_response.data:
+                print(f"No records found to delete for pitch_id: {description} and date: {selected_date}")
+                return False
+
+            print(f"Successfully deleted saved pitch with pitch_id: {description} and date: {selected_date}")
+            return True
+
+        except Exception as e:
+            print(f"Error deleting saved pitch: {str(e)}")
             return False
