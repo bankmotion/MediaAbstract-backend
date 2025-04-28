@@ -88,7 +88,8 @@ class Pitch:
                     "industry": pitch["industry"],
                     "status": pitch["status"],
                     "matched_outlets": matched_outlets,
-                    "created_at": pitch["created_at"]
+                    "created_at": pitch["created_at"],
+                    "notes": pitch["notes"]
                 }
                 formatted_pitches.append(formatted_pitch)
 
