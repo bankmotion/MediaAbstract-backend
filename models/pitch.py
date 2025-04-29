@@ -226,14 +226,20 @@ class Pitch:
     @staticmethod
     def update_pitch_status_and_notes(pitch_id: str, status: str, notes: str) -> bool:
         """Update both the status and notes of a pitch."""
+        print("pitch_id, status, notes: ", pitch_id, status, notes)
         try:
+            # Prepare update data
+            update_data = {}
+            if status is not None:
+                update_data["status"] = status
+            if notes is not None:
+                update_data["notes"] = notes
+                
+            if not update_data:
+                return False
+                
             # Update the pitch status and notes in the database
-            response = supabase.table("pitches").update(
-                {
-                    "status": status,
-                    "notes": notes
-                }
-            ).eq("id", pitch_id).execute()
+            response = supabase.table("pitches").update(update_data).eq("id", pitch_id).execute()
             
             print("response: ", response)
             # Check if the update was successful by verifying the response data

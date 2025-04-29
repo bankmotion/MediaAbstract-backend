@@ -123,8 +123,12 @@ def update_pitch_status_and_notes():
         status = data.get("status")
         notes = data.get("notes")
         print(f"Received data: {data}")
-        if not all([pitch_id, status]):
-            return jsonify({"error": "Missing required fields: pitchId or status"}), 400
+        
+        if not pitch_id:
+            return jsonify({"error": "Missing required field: pitchId"}), 400
+            
+        if not status and not notes:
+            return jsonify({"error": "At least one of status or notes must be provided"}), 400
         
         # Update the pitch status and notes
         success = Pitch.update_pitch_status_and_notes(pitch_id, status, notes)
