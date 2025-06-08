@@ -20,8 +20,13 @@ def submit_pitch():
         if "abstract" not in data or "industry" not in data:
             return jsonify({"error": "Missing required fields: abstract and industry"}), 400
     
-        # Create pitch object
-        pitch = Pitch(data["abstract"], data["industry"])
+        # Create pitch object with user_id and planType
+        pitch = Pitch(
+            data["abstract"], 
+            data["industry"],
+            user_id=data["userId"],  
+            plan_type=data.get("planType")  
+        )
         
         # Find matching outlets
         matches = pitch.find_matching_outlets()
@@ -32,34 +37,58 @@ def submit_pitch():
         if pitch_id is None:
             return jsonify({"error": "Failed to submit pitch"}), 500
         
-        # Format the matches for response
+        # Log activity: Matched 'pitchtitle'
+        abstract = data["abstract"]
+        title_words = abstract.split()[:8]
+        pitch_title = " ".join(title_words) + ("..." if len(abstract.split()) > 8 else "")
+        action = f"Matched '{pitch_title}'"
+        user_id = data["userId"]
+        created_at = datetime.utcnow().isoformat()
+        supabase.table("activity_log").insert({
+            "user_id": user_id,
+            "action": action,
+            "created_at": created_at
+        }).execute()
+        
+        # Format the matches for response based on plan type
         serializable_matches = []
         for match in matches:
-            serializable_match = {
-                "pitch_id": pitch_id,
-                "outlet": {
-                      # Add pitch_id to each match
-                    "name": match["outlet"].get("Outlet Name", ""),
-                    "audience": match["outlet"].get("Audience", ""),
-                    "section_name": match["outlet"].get("Section Name", ""),
-                    "contact_email": match["outlet"].get("Editor Contact", ""),
-                    "ai_partnered": match["outlet"].get("AI Partnered", ""),
-                    "url": match["outlet"].get("URL", ""),
-                    "guidelines": match["outlet"].get("Guidelines", ""),
-                    "pitch_tips": match["outlet"].get("Pitch Tips", ""),
-                    # Add other relevant outlet fields
-                },
-                "score": float(match["score"]),  # Convert to float to ensure serializability
-                "match_explanation": match["match_explanation"],
-                "match_confidence": match["match_confidence"]
-            }
+            if data.get("planType", "").lower() == "basic":
+                # For basic plan, only return basic outlet information
+                serializable_match = {
+                    "pitch_id": pitch_id,
+                    "outlet": {
+                        "name": match["outlet"].get("Outlet Name", ""),
+                        "contact_email": match["outlet"].get("Editor Contact", ""),
+                        "url": match["outlet"].get("URL", "")
+                    }
+                }
+            else:
+                # For other plans, return full outlet information
+                serializable_match = {
+                    "pitch_id": pitch_id,
+                    "outlet": {
+                        "name": match["outlet"].get("Outlet Name", ""),
+                        "audience": match["outlet"].get("Audience", ""),
+                        "section_name": match["outlet"].get("Section Name", ""),
+                        "contact_email": match["outlet"].get("Editor Contact", ""),
+                        "ai_partnered": match["outlet"].get("AI Partnered", ""),
+                        "url": match["outlet"].get("URL", ""),
+                        "guidelines": match["outlet"].get("Guidelines", ""),
+                        "pitch_tips": match["outlet"].get("Pitch Tips", "")
+                    },
+                    "score": float(match["score"]),
+                    "match_explanation": match["match_explanation"],
+                    "match_confidence": match["match_confidence"]
+                }
             serializable_matches.append(serializable_match)
 
         return jsonify({
             "success": True,
             "message": "Pitch submitted successfully",
             "pitch_id": pitch_id,
-            "matched_outlets": serializable_matches
+            "matched_outlets": serializable_matches,
+            "plan_type": data.get("planType", "")
         }), 200
             
     except Exception as e:
@@ -80,14 +109,16 @@ def update_pitch_status():
         pitch_id = data.get("pitchId")
         outlet_name = data.get("outletName")
         status = data.get("status")
-        
+        user_id = data.get("userId")
+
         print(f"Received data: {data}")
         print(f"Pitch ID: {pitch_id}")
         print(f"Outlet Name: {outlet_name}")
         print(f"Status: {status}")
-        
-        if not all([pitch_id, outlet_name, status]):
-            return jsonify({"error": "Missing required fields: pitchId, outletName, or status"}), 400
+        print(f"User ID: {user_id}")
+
+        if not all([pitch_id, outlet_name, status, user_id]):
+            return jsonify({"error": "Missing required fields: pitchId, outletName, status, or userId"}), 400
         
         # Update the pitch status
         success = Pitch.update_pitch_status(pitch_id)
@@ -95,6 +126,14 @@ def update_pitch_status():
         print(f"Success: {success}")
 
         if success:
+            # Log activity: Submitted 'outletname'
+            action = f"Submitted '{outlet_name}'"
+            created_at = datetime.utcnow().isoformat()
+            supabase.table("activity_log").insert({
+                "user_id": user_id,
+                "action": action,
+                "created_at": created_at
+            }).execute()
             return jsonify({
                 "success": True,
                 "message": f"Successfully updated status to {status} for outlet {outlet_name}"
@@ -152,7 +191,8 @@ def update_pitch_status_and_notes():
 
 @pitch_routes.route("/get_dashboard_data", methods=["GET"])
 def get_dashboard_data():
-    dashboard_data = Pitch.get_dashboard_data()
+    user_id = request.args.get("userId")
+    dashboard_data = Pitch.get_dashboard_data(user_id=user_id)
     
     if dashboard_data:
         return jsonify(dashboard_data), 200
@@ -165,13 +205,32 @@ def save_selected_outlets():
         data = request.json
         pitch_id = data.get("description")
         outlet_ids = data.get("outlets")
+        user_id = data.get("userId")  # Get user_id from request data
 
-        if not pitch_id or not outlet_ids:
+        if not pitch_id or not outlet_ids or not user_id:
             return jsonify({"error": "Missing required fields"}), 400
 
-        success = Pitch.save_selected_outlets(pitch_id, outlet_ids)
-
+        success = Pitch.save_selected_outlets(pitch_id, outlet_ids, user_id)
+        print(f"Success: {success}")
         if success:
+            # Use pitch_id (description/abstract) directly as the title
+            abstract = pitch_id
+            title_words = abstract.split()[:8]
+            pitch_title = " ".join(title_words) + ("..." if len(abstract.split()) > 8 else "")
+
+
+            # Use outlet_ids directly as names
+            outlet_names_str = ", ".join(outlet_ids)
+            selected_count = len(outlet_ids) if outlet_ids else 0
+
+            action = f"Saved outlets ({selected_count}): {outlet_names_str} for '{pitch_title}'"
+            created_at = datetime.utcnow().isoformat()
+            
+            supabase.table("activity_log").insert({
+                "user_id": user_id,
+                "action": action,
+                "created_at": created_at
+            }).execute()
             return jsonify({"success": True, "message": "Outlets saved successfully"}), 200
         else:
             return jsonify({"success": False, "error": "Failed to save outlets"}), 500
@@ -182,8 +241,12 @@ def save_selected_outlets():
 @pitch_routes.route("/get_saved_outlets", methods=["GET"])
 def get_saved_outlets():
     """Fetch all saved outlets for pitches."""
+    user_id = request.args.get("userId")
     
-    saved_outlets = Pitch.get_all_selected_outlets()
+    if not user_id:
+        return jsonify({"error": "Missing required field: userId"}), 400
+    
+    saved_outlets = Pitch.get_all_selected_outlets(user_id)
 
     if saved_outlets:
         return jsonify(saved_outlets), 200
@@ -198,7 +261,6 @@ def get_all_outlets():
     else:
         return jsonify({"error": "Failed to fetch all outlets"}), 500
 
-
 @pitch_routes.route("/delete_saved_pitch", methods=["DELETE"])
 def delete_saved_pitch():
     try:
@@ -208,11 +270,12 @@ def delete_saved_pitch():
         print(f"Received data: {data}")
         description = data.get("description")
         selected_date = data.get("selected_date")
+        user_id = data.get("userId")
         
-        if not all([description, selected_date]):
-            return jsonify({"error": "Missing required fields: description or selected_date"}), 400
+        if not all([description, selected_date, user_id]):
+            return jsonify({"error": "Missing required fields: description, selected_date, or userId"}), 400
 
-        success = Pitch.delete_saved_pitch(description, selected_date)
+        success = Pitch.delete_saved_pitch(description, selected_date, user_id)
 
         if success:
             return jsonify({"success": True, "message": "Saved pitch deleted successfully."}), 200

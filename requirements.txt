@@ -9,3 +9,5 @@ scikit-learn
 nltk
 spacy
 stripe
+flask-mail==0.9.1
+apscheduler==3.10.1

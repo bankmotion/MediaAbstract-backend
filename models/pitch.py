@@ -9,9 +9,11 @@ from services.supabase_service import supabase
 
 load_dotenv()
 class Pitch:
-    def __init__(self, abstract: str, industry: str):
+    def __init__(self, abstract: str, industry: str, user_id: str = None, plan_type: str = None):
         self.abstract = abstract
         self.industry = industry
+        self.user_id = user_id
+        self.plan_type = plan_type
         self.matcher = OutletMatcher(supabase)
 
     def find_matching_outlets(self) -> List[Dict]:
@@ -23,15 +25,31 @@ class Pitch:
             matched_outlets = self.find_matching_outlets()
             match_count = len(matched_outlets)
 
-            # Insert pitch data
+            # Prepare basic pitch data
             pitch_data = {
                 "abstract": self.abstract,
                 "industry": self.industry,
+                "user_id": self.user_id,
+                "plan_type": self.plan_type,
                 "status": "Matched",
                 "matches_found": match_count,
-                "matched_outlets": matched_outlets,  # Store the matched outlets data
                 "created_at": datetime.utcnow().isoformat()
             }
+
+            # Add matched outlets data based on plan type
+            if self.plan_type and self.plan_type.lower() != "basic":
+                pitch_data["matched_outlets"] = matched_outlets
+            else:
+                # For basic plan, only store basic outlet information
+                basic_outlets = []
+                for match in matched_outlets:
+                    outlet = match["outlet"]
+                    basic_outlets.append({
+                        "name": outlet.get("Outlet Name", ""),
+                        "contact_email": outlet.get("Editor Contact", ""),
+                        "url": outlet.get("URL", "")
+                    })
+                pitch_data["matched_outlets"] = basic_outlets
             
             # Insert pitch and get the ID
             response = supabase.table("pitches").insert(pitch_data).execute()
@@ -46,50 +64,63 @@ class Pitch:
         
     
     @staticmethod
-    def get_dashboard_data():
+    def get_dashboard_data(user_id=None):
         try:
-            pitches = supabase.table("pitches").select("*").order("created_at", desc=True).execute().data
+            query = supabase.table("pitches").select("*").order("created_at", desc=True)
+            if user_id:
+                query = query.eq("user_id", user_id)
+            pitches = query.execute().data
             total_pitches = len(pitches)
-            total_matches = sum(p["matches_found"] if p["matches_found"] is not None else 0 for p in pitches)
+            total_matches = sum(p["matches_found"] if p.get("matches_found") is not None else 0 for p in pitches)
 
             # Format pitch data for frontend
             formatted_pitches = []
             for pitch in pitches:
                 # Get first few words of abstract as title (or use full abstract if short)
-                title_words = pitch["abstract"].split()[:8]  # First 8 words
-                title = " ".join(title_words) + ("..." if len(pitch["abstract"].split()) > 8 else "")
+                title_words = pitch.get("abstract", "").split()[:8]  # First 8 words
+                title = " ".join(title_words) + ("..." if len(pitch.get("abstract", "").split()) > 8 else "")
 
-                # Format matched outlets data
+                # Format matched outlets data based on plan type
                 matched_outlets = []
                 if pitch.get("matched_outlets"):
                     for outlet_match in pitch["matched_outlets"]:
-                        outlet = outlet_match.get("outlet", {})
-                        outlet_name = outlet.get("Outlet Name", "")
-                        outlet_url = outlet.get("URL", "")
-                        outlet_email = outlet.get("Editor Contact", "")
-                        outlet_ai_partnered = outlet.get("AI Partnered", "")
-                        match_score = outlet_match.get("score", 0)
-                        match_percentage = f"{int(match_score * 100)}%"
-                        match_explanation = outlet_match.get("match_explanation", "")
+                        if str(pitch.get("plan_type", "")).lower() == "basic":
+                            # For basic plan, only return basic outlet information
+                            matched_outlets.append({
+                                "name": outlet_match.get("name", ""),
+                                "email": outlet_match.get("contact_email", ""),
+                                "url": outlet_match.get("url", "")
+                            })
+                        else:
+                            # For other plans, return full outlet information
+                            outlet = outlet_match.get("outlet", {})
+                            outlet_name = outlet.get("Outlet Name", "")
+                            outlet_url = outlet.get("URL", "")
+                            outlet_email = outlet.get("Editor Contact", "")
+                            outlet_ai_partnered = outlet.get("AI Partnered", "")
+                            match_score = outlet_match.get("score", 0)
+                            match_percentage = f"{int(match_score * 100)}%"
+                            match_explanation = outlet_match.get("match_explanation", "")
 
-                        matched_outlets.append({
-                            "name": outlet_name,
-                            "match_percentage": match_percentage,
-                            "url": outlet_url,
-                            "email": outlet_email,
-                            "ai_partnered": outlet_ai_partnered,
-                            "match_explanation": match_explanation
-                        })
+                            matched_outlets.append({
+                                "name": outlet_name,
+                                "match_percentage": match_percentage,
+                                "url": outlet_url,
+                                "email": outlet_email,
+                                "ai_partnered": outlet_ai_partnered,
+                                "match_explanation": match_explanation
+                            })
 
                 formatted_pitch = {
-                    "id": pitch["id"],
+                    "id": pitch.get("id"),
                     "title": title,
-                    "abstract": pitch["abstract"],
-                    "industry": pitch["industry"],
-                    "status": pitch["status"],
+                    "abstract": pitch.get("abstract", ""),
+                    "industry": pitch.get("industry", ""),
+                    "status": pitch.get("status", ""),
                     "matched_outlets": matched_outlets,
-                    "created_at": pitch["created_at"],
-                    "notes": pitch["notes"]
+                    "created_at": pitch.get("created_at", ""),
+                    "notes": pitch.get("notes", ""),
+                    "plan_type": pitch.get("plan_type", "")
                 }
                 formatted_pitches.append(formatted_pitch)
 
@@ -103,15 +134,15 @@ class Pitch:
             return None
 
     @staticmethod
-    def save_selected_outlets(pitch_id: str, outlet_ids: List[str]) -> bool:
+    def save_selected_outlets(pitch_id: str, outlet_ids: List[str], user_id: str) -> bool:
         """Save selected outlets for a pitch in the `saved_outlets` table."""
-        print("Pitch_id, Outlet_ids: ", pitch_id, outlet_ids)
+        print("Pitch_id, Outlet_ids, User_id: ", pitch_id, outlet_ids, user_id)
         
         try:
-            if not pitch_id or not outlet_ids:
+            if not pitch_id or not outlet_ids or not user_id:
                 return False
 
-            data = [{"pitch_id": pitch_id, "outlet_id": outlet_id} for outlet_id in outlet_ids]
+            data = [{"pitch_id": pitch_id, "outlet_id": outlet_id, "user_id": user_id} for outlet_id in outlet_ids]
             response = supabase.table("selected_outlets").insert(data).execute()
             
             if response.data:
@@ -121,11 +152,12 @@ class Pitch:
             print(f"Error saving selected outlets: {str(e)}")
             return False
         
-    def get_all_selected_outlets() -> List[dict]:
-        """Fetch all saved outlets from the selected_outlets table, ensuring unique pitch groups based on created_at order."""
+    @staticmethod
+    def get_all_selected_outlets(user_id: str) -> List[dict]:
+        """Fetch all saved outlets from the selected_outlets table for a specific user."""
         try:
-            # Fetch the selected outlets with pitch_id, outlet_id, and created_at
-            response = supabase.table("selected_outlets").select("pitch_id, outlet_id, created_at").order("created_at", desc=False).execute()
+            # Fetch the selected outlets with pitch_id, outlet_id, and created_at for the specific user
+            response = supabase.table("selected_outlets").select("pitch_id, outlet_id, created_at").eq("user_id", user_id).order("created_at", desc=False).execute()
             
             # Check if data exists in response
             if response.data:
@@ -152,7 +184,6 @@ class Pitch:
                             "description": pitch_id, 
                             "outlets": [],
                             "selected_date": created_at.strftime("%Y-%m-%d %H:%M:%S")  # Format date for frontend
-                            # "selected_date": created_at
                         }
 
                     # Append the outlet to the current group
@@ -165,8 +196,6 @@ class Pitch:
                 # Append the last group if not empty
                 if current_group:
                     grouped_outlets.append(current_group)
-
-                # print("grouped_outlets: ", grouped_outlets)
 
                 return grouped_outlets
 
@@ -252,18 +281,19 @@ class Pitch:
             return False
 
     @staticmethod
-    def delete_saved_pitch(description: str, selected_date: str) -> bool:
+    def delete_saved_pitch(description: str, selected_date: str, user_id: str) -> bool:
         """
         Delete saved outlets where pitch_id matches and created_at matches the given second (ignoring fractional seconds and timezone).
         Args:
             description (str): The pitch_id to match
             selected_date (str): The created_at timestamp to match (format: YYYY-MM-DD HH:MM:SS)
+            user_id (str): The user_id to match
         Returns:
             bool: True if deletion was successful, False otherwise
         """
         try:
-            if not description or not selected_date:
-                print("Error: Both description and selected_date are required")
+            if not description or not selected_date or not user_id:
+                print("Error: description, selected_date, and user_id are required")
                 return False
 
             # Parse the input date string (no timezone/fractional)
@@ -282,16 +312,17 @@ class Pitch:
                 .table("selected_outlets")
                 .delete()
                 .eq("pitch_id", description)
+                .eq("user_id", user_id)
                 .gte("created_at", start)
                 .lt("created_at", end)
                 .execute()
             )
 
             if not delete_response.data:
-                print(f"No records found to delete for pitch_id: {description} and date: {selected_date}")
+                print(f"No records found to delete for pitch_id: {description}, user_id: {user_id} and date: {selected_date}")
                 return False
 
-            print(f"Successfully deleted saved pitch with pitch_id: {description} and date: {selected_date}")
+            print(f"Successfully deleted saved pitch with pitch_id: {description}, user_id: {user_id} and date: {selected_date}")
             return True
 
         except Exception as e:
