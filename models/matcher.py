@@ -429,9 +429,38 @@ class OutletMatcher:
                 general_business_outlets = ['time', 'inc', 'fortune', 'forbes', 'business insider', 'cnbc', 'bloomberg']
                 if any(indicator in outlet.get('Outlet Name', '').lower() for indicator in general_business_outlets):
                     if specialization_type in ['cybersecurity', 'ai_ml', 'education', 'healthcare']:
-                        score = score * 0.5  # Increased from 0.3 - less aggressive downrank
+                        score = score * 0.001  # 99.9% reduction for general business outlets in technical content
                     else:
-                        score = score * 0.8  # Increased from 0.7 - less aggressive downrank
+                        score = score * 0.1  # 90% reduction for general business outlets
+                
+                # CLIENT FEEDBACK: Additional aggressive penalties for off-topic outlets
+                if specialization_type in ['cybersecurity', 'ai_ml']:
+                    outlet_name = outlet.get('Outlet Name', '').lower()
+                    outlet_keywords = outlet.get('Keywords', '').lower()
+                    outlet_audience = outlet.get('Audience', '').lower()
+                    all_outlet_text = f"{outlet_name} {outlet_keywords} {outlet_audience}"
+                    
+                    # Check for specific off-topic outlets
+                    off_topic_outlets = ['fintech magazine', 'payments dive', 'cmswire', 'adweek', 'fast company', 'business insider', 'food processing', 'retail touchpoints']
+                    if any(off_topic in outlet_name for off_topic in off_topic_outlets):
+                        score = score * 0.001  # 99.9% reduction
+                    
+                    # Check for off-topic keyword categories
+                    fintech_keywords = ['fintech', 'payments', 'banking', 'financial', 'digital banking', 'mobile payments']
+                    marketing_keywords = ['marketing', 'advertising', 'media', 'brand', 'campaign', 'creative']
+                    business_keywords = ['business', 'corporate', 'enterprise', 'leadership', 'management']
+                    retail_keywords = ['retail', 'commerce', 'ecommerce', 'shopping', 'consumer']
+                    
+                    total_off_topic_matches = 0
+                    for keyword_list in [fintech_keywords, marketing_keywords, business_keywords, retail_keywords]:
+                        total_off_topic_matches += sum(1 for kw in keyword_list if kw in all_outlet_text)
+                    
+                    if total_off_topic_matches >= 3:
+                        normalized_score = normalized_score * 0.001  # 99.9% reduction
+                    elif total_off_topic_matches >= 2:
+                        normalized_score = normalized_score * 0.01  # 99% reduction
+                    elif total_off_topic_matches >= 1:
+                        normalized_score = normalized_score * 0.1  # 90% reduction
             
             # Boost score for specialized outlets (existing logic)
             if outlet.get('Outlet Name') in self.learned_data['outlet_specializations']:
@@ -584,11 +613,47 @@ class OutletMatcher:
                 general_business_outlets = ['time', 'inc', 'fortune', 'forbes', 'business insider', 'cnbc', 'bloomberg']
                 if any(indicator in outlet_name for indicator in general_business_outlets):
                     if specialization_type in ['cybersecurity', 'ai_ml', 'education', 'healthcare']:
-                        semantic_score = semantic_score * 0.5  # Increased from 0.25 - less aggressive downrank
-                        overlap_score = overlap_score * 0.5
+                        semantic_score = semantic_score * 0.001  # 99.9% reduction for general business outlets in technical content
+                        overlap_score = overlap_score * 0.001
                     else:
-                        semantic_score = semantic_score * 0.7  # Increased from 0.6 - less aggressive downrank
-                        overlap_score = overlap_score * 0.7
+                        semantic_score = semantic_score * 0.1  # 90% reduction for general business outlets
+                        overlap_score = overlap_score * 0.1
+                
+                # CLIENT FEEDBACK: Additional aggressive penalties for off-topic outlets
+                if specialization_type in ['cybersecurity', 'ai_ml']:
+                    outlet_keywords = outlet.get('Keywords', '').lower()
+                    outlet_audience = outlet.get('Audience', '').lower()
+                    all_outlet_text = f"{outlet_name} {outlet_keywords} {outlet_audience}"
+                    
+                    # Check for specific off-topic outlets
+                    off_topic_outlets = ['fintech magazine', 'payments dive', 'cmswire', 'adweek', 'fast company', 'business insider', 'food processing', 'retail touchpoints']
+                    if any(off_topic in outlet_name for off_topic in off_topic_outlets):
+                        semantic_score = semantic_score * 0.001  # 99.9% reduction
+                        overlap_score = overlap_score * 0.001
+                    
+                    # Check for off-topic keyword categories
+                    fintech_keywords = ['fintech', 'payments', 'banking', 'financial', 'digital banking', 'mobile payments', 'payment processing']
+                    marketing_keywords = ['marketing', 'advertising', 'media', 'brand', 'campaign', 'creative', 'digital marketing', 'social media marketing']
+                    business_keywords = ['business', 'corporate', 'enterprise', 'leadership', 'management', 'strategy', 'business trends']
+                    retail_keywords = ['retail', 'commerce', 'ecommerce', 'shopping', 'consumer', 'customer']
+                    
+                    # Apply penalties for off-topic keyword matches
+                    fintech_matches = sum(1 for kw in fintech_keywords if kw in all_outlet_text)
+                    marketing_matches = sum(1 for kw in marketing_keywords if kw in all_outlet_text)
+                    business_matches = sum(1 for kw in business_keywords if kw in all_outlet_text)
+                    retail_matches = sum(1 for kw in retail_keywords if kw in all_outlet_text)
+                    
+                    # Apply severe penalties for multiple off-topic keyword matches
+                    total_off_topic_matches = fintech_matches + marketing_matches + business_matches + retail_matches
+                    if total_off_topic_matches >= 3:
+                        normalized_score = normalized_score * 0.001  # 99.9% reduction
+                        
+                    elif total_off_topic_matches >= 2:
+                        normalized_score = normalized_score * 0.01  # 99% reduction
+                        
+                    elif total_off_topic_matches >= 1:
+                        normalized_score = normalized_score * 0.1  # 90% reduction
+                        
             
             # Combine scores with adjusted weights
             final_score = (semantic_score * 0.6) + (overlap_score * 0.4)  # Slightly favor semantic similarity
@@ -744,6 +809,153 @@ class OutletMatcher:
             print(f"Error calculating news match: {str(e)}")
             return 0.0
 
+    def calculate_comprehensive_score_with_details(self, outlet: Dict, query: str, industry: str) -> Dict:
+        """Calculate comprehensive match score with detailed field breakdown for debugging."""
+        try:
+            # Component scores
+            industry_match = self._calculate_industry_match(outlet, industry)
+            keyword_relevance = self._calculate_keyword_relevance(outlet, query)
+            news_match = self._calculate_news_match(outlet, query)
+            audience_match = self._calculate_audience_match(outlet, query, industry)
+            content_compatibility = self._calculate_content_compatibility(outlet, query)
+            requirements_match = self._calculate_requirements_match(outlet, query)
+            outlet_expertise = self._calculate_outlet_expertise_match(outlet, query, industry)
+            prestige_score = self._calculate_prestige_score(outlet)
+            
+            # Store individual scores for debugging
+            field_scores = {
+                'Industry Match': industry_match,
+                'Keywords': keyword_relevance,
+                'News Match': news_match,
+                'Audience': audience_match,
+                'Content Type': content_compatibility,
+                'Requirements': requirements_match,
+                'Outlet Expertise': outlet_expertise,
+                'Prestige': prestige_score
+            }
+            
+            # Weighted sum
+            total_score = (
+                industry_match * self.field_weights['Industry Match'] +
+                keyword_relevance * self.field_weights['Keywords'] +
+                news_match * self.field_weights['News Match'] +
+                audience_match * self.field_weights['Audience'] +
+                content_compatibility * self.field_weights['Content Type'] +
+                requirements_match * self.field_weights['Requirements'] +
+                outlet_expertise * self.field_weights['Outlet Expertise'] +
+                prestige_score * self.field_weights['Prestige']
+            )
+            
+            # Normalize score
+            total_weight = sum(self.field_weights.values())
+            normalized_score = total_score / total_weight if total_weight > 0 else 0.0
+            
+            # Apply stricter exclusion logic for off-topic verticals
+            content_specialization = self._detect_content_specialization(query, industry)
+            outlet_focus = self._determine_outlet_focus(outlet)
+            
+            # CLIENT FEEDBACK: Stronger exclusion for off-topic verticals
+            if content_specialization:
+                specialization_type = content_specialization['type']
+                
+                # Define incompatible outlet focuses for each specialization - EXPANDED FOR CLIENT FEEDBACK
+                incompatible_focuses = {
+                    'education': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics', 'fintech', 'payments', 'marketing', 'advertising', 'business_general'],
+                    'cybersecurity': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics', 'fintech', 'payments', 'marketing', 'advertising', 'business_general'],
+                    'ai_ml': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics', 'fintech', 'payments', 'marketing', 'advertising', 'business_general'],
+                    'fintech': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics'],
+                    'healthcare': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics', 'fintech', 'payments', 'marketing', 'advertising', 'business_general'],
+                    'sustainability': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics', 'fintech', 'payments', 'marketing', 'advertising', 'business_general'],
+                    'real_estate': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics', 'fintech', 'payments', 'marketing', 'advertising', 'business_general'],
+                    'startup': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics'],
+                    'investment': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics'],
+                    'marketing': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics'],
+                    'leadership': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics']
+                }
+                
+                # Check for incompatible outlet focus
+                incompatible_list = incompatible_focuses.get(specialization_type, [])
+                if outlet_focus in incompatible_list:
+                    # CLIENT FEEDBACK: Score close to zero for incompatible verticals
+                    normalized_score = normalized_score * 0.01  # Almost zero score
+                
+                # CLIENT FEEDBACK: Expanded specific outlet blacklists for security/AI content
+                outlet_name = outlet.get('Outlet Name', '').lower()
+                off_topic_outlets = {
+                    'education': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in', 'fintech magazine', 'payments dive', 'cmswire', 'adweek', 'fast company', 'business insider', 'cms wire'],
+                    'cybersecurity': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in', 'fintech magazine', 'payments dive', 'cmswire', 'adweek', 'fast company', 'business insider', 'cms wire', 'fintech', 'payments', 'marketing', 'advertising', 'business'],
+                    'ai_ml': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in', 'fintech magazine', 'payments dive', 'cmswire', 'adweek', 'fast company', 'business insider', 'cms wire', 'fintech', 'payments', 'marketing', 'advertising', 'business'],
+                    'fintech': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in'],
+                    'healthcare': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in', 'fintech magazine', 'payments dive', 'cmswire', 'adweek', 'fast company', 'business insider', 'cms wire'],
+                    'sustainability': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in', 'fintech magazine', 'payments dive', 'cmswire', 'adweek', 'fast company', 'business insider', 'cms wire'],
+                    'real_estate': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in', 'fintech magazine', 'payments dive', 'cmswire', 'adweek', 'fast company', 'business insider', 'cms wire'],
+                    'startup': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in'],
+                    'investment': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in'],
+                    'marketing': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in'],
+                    'leadership': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in']
+                }
+                
+                off_topic_list = off_topic_outlets.get(specialization_type, [])
+                if any(off_topic in outlet_name for off_topic in off_topic_list):
+                    normalized_score = normalized_score * 0.01  # Almost zero score
+                
+                # CLIENT FEEDBACK: Additional penalty for broad business/marketing outlets in technical content
+                broad_business_outlets = ['time', 'inc', 'fortune', 'forbes', 'business insider', 'cnbc', 'bloomberg', 'fast company', 'adweek', 'marketing week', 'campaign', 'ad age']
+                if specialization_type in ['cybersecurity', 'ai_ml', 'healthcare', 'education'] and any(broad in outlet_name for broad in broad_business_outlets):
+                    normalized_score = normalized_score * 0.001  # 99.9% reduction for broad business outlets in technical content
+                
+                # CLIENT FEEDBACK: Additional penalty for fintech/payments outlets in non-fintech content
+                fintech_outlets = ['fintech magazine', 'payments dive', 'payments source', 'banking dive', 'financial times', 'american banker']
+                if specialization_type not in ['fintech'] and any(fintech in outlet_name for fintech in fintech_outlets):
+                    normalized_score = normalized_score * 0.001  # 99.9% reduction for fintech outlets in non-fintech content
+                
+                # CLIENT FEEDBACK: Additional keyword-based penalties for technical content
+                if specialization_type in ['cybersecurity', 'ai_ml']:
+                    # Check for off-topic keywords in outlet data
+                    outlet_keywords = outlet.get('Keywords', '').lower()
+                    outlet_audience = outlet.get('Audience', '').lower()
+                    all_outlet_text = f"{outlet_name} {outlet_keywords} {outlet_audience}"
+                    
+                    # Define off-topic keyword categories
+                    fintech_keywords = ['fintech', 'payments', 'banking', 'financial', 'digital banking', 'mobile payments']
+                    marketing_keywords = ['marketing', 'advertising', 'media', 'brand', 'campaign', 'creative']
+                    business_keywords = ['business', 'corporate', 'enterprise', 'leadership', 'management']
+                    retail_keywords = ['retail', 'commerce', 'ecommerce', 'shopping', 'consumer']
+                    
+                    # Apply penalties for off-topic keyword matches
+                    fintech_matches = sum(1 for kw in fintech_keywords if kw in all_outlet_text)
+                    marketing_matches = sum(1 for kw in marketing_keywords if kw in all_outlet_text)
+                    business_matches = sum(1 for kw in business_keywords if kw in all_outlet_text)
+                    retail_matches = sum(1 for kw in retail_keywords if kw in all_outlet_text)
+                    
+                    # Apply severe penalties for multiple off-topic keyword matches
+                    total_off_topic_matches = fintech_matches + marketing_matches + business_matches + retail_matches
+                    if total_off_topic_matches >= 3:
+                        normalized_score = normalized_score * 0.001  # 99.9% reduction
+                    elif total_off_topic_matches >= 2:
+                        normalized_score = normalized_score * 0.01  # 99% reduction
+                    elif total_off_topic_matches >= 1:
+                        normalized_score = normalized_score * 0.1  # 90% reduction
+            
+            # Boost the final score to increase the average match confidence
+            boosted_score = normalized_score * 1.5
+            
+            return {
+                'score': min(1.0, max(0.0, boosted_score)),
+                'field_scores': field_scores,
+                'content_specialization': content_specialization,
+                'outlet_focus': outlet_focus
+            }
+        
+        except Exception as e:
+            print(f"Error calculating comprehensive score with details: {str(e)}")
+            return {
+                'score': 0.0,
+                'field_scores': {},
+                'content_specialization': None,
+                'outlet_focus': None
+            }
+
     def calculate_comprehensive_score(self, outlet: Dict, query: str, industry: str) -> float:
         """Calculate a comprehensive match score based on multiple weighted factors."""
         try:
@@ -772,6 +984,96 @@ class OutletMatcher:
             # Normalize score
             total_weight = sum(self.field_weights.values())
             normalized_score = total_score / total_weight if total_weight > 0 else 0.0
+            
+            # Apply stricter exclusion logic for off-topic verticals
+            content_specialization = self._detect_content_specialization(query, industry)
+            outlet_focus = self._determine_outlet_focus(outlet)
+            
+            # CLIENT FEEDBACK: Stronger exclusion for off-topic verticals
+            if content_specialization:
+                specialization_type = content_specialization['type']
+                
+                # Define incompatible outlet focuses for each specialization - EXPANDED FOR CLIENT FEEDBACK
+                incompatible_focuses = {
+                    'education': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics', 'fintech', 'payments', 'marketing', 'advertising', 'business_general'],
+                    'cybersecurity': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics', 'fintech', 'payments', 'marketing', 'advertising', 'business_general'],
+                    'ai_ml': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics', 'fintech', 'payments', 'marketing', 'advertising', 'business_general'],
+                    'fintech': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics'],
+                    'healthcare': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics', 'fintech', 'payments', 'marketing', 'advertising', 'business_general'],
+                    'sustainability': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics', 'fintech', 'payments', 'marketing', 'advertising', 'business_general'],
+                    'real_estate': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics', 'fintech', 'payments', 'marketing', 'advertising', 'business_general'],
+                    'startup': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics'],
+                    'investment': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics'],
+                    'marketing': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics'],
+                    'leadership': ['food', 'retail', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics']
+                }
+                
+                # Check for incompatible outlet focus
+                incompatible_list = incompatible_focuses.get(specialization_type, [])
+                if outlet_focus in incompatible_list:
+                    # CLIENT FEEDBACK: Score close to zero for incompatible verticals
+                    normalized_score = normalized_score * 0.01  # Almost zero score
+                
+                # CLIENT FEEDBACK: Expanded specific outlet blacklists for security/AI content
+                outlet_name = outlet.get('Outlet Name', '').lower()
+                off_topic_outlets = {
+                    'education': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in', 'fintech magazine', 'payments dive', 'cmswire', 'adweek', 'fast company', 'business insider', 'cms wire'],
+                    'cybersecurity': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in', 'fintech magazine', 'payments dive', 'cmswire', 'adweek', 'fast company', 'business insider', 'cms wire', 'fintech', 'payments', 'marketing', 'advertising', 'business'],
+                    'ai_ml': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in', 'fintech magazine', 'payments dive', 'cmswire', 'adweek', 'fast company', 'business insider', 'cms wire', 'fintech', 'payments', 'marketing', 'advertising', 'business'],
+                    'fintech': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in'],
+                    'healthcare': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in', 'fintech magazine', 'payments dive', 'cmswire', 'adweek', 'fast company', 'business insider', 'cms wire'],
+                    'sustainability': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in', 'fintech magazine', 'payments dive', 'cmswire', 'adweek', 'fast company', 'business insider', 'cms wire'],
+                    'real_estate': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in', 'fintech magazine', 'payments dive', 'cmswire', 'adweek', 'fast company', 'business insider', 'cms wire'],
+                    'startup': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in'],
+                    'investment': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in'],
+                    'marketing': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in'],
+                    'leadership': ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in']
+                }
+                
+                off_topic_list = off_topic_outlets.get(specialization_type, [])
+                if any(off_topic in outlet_name for off_topic in off_topic_list):
+                    normalized_score = normalized_score * 0.01  # Almost zero score
+                
+                # CLIENT FEEDBACK: Additional penalty for broad business/marketing outlets in technical content
+                broad_business_outlets = ['time', 'inc', 'fortune', 'forbes', 'business insider', 'cnbc', 'bloomberg', 'fast company', 'adweek', 'marketing week', 'campaign', 'ad age']
+                if specialization_type in ['cybersecurity', 'ai_ml', 'healthcare', 'education'] and any(broad in outlet_name for broad in broad_business_outlets):
+                    normalized_score = normalized_score * 0.001  # 99.9% reduction for broad business outlets in technical content
+                
+                # CLIENT FEEDBACK: Additional penalty for fintech/payments outlets in non-fintech content
+                fintech_outlets = ['fintech magazine', 'payments dive', 'payments source', 'banking dive', 'financial times', 'american banker']
+                if specialization_type not in ['fintech'] and any(fintech in outlet_name for fintech in fintech_outlets):
+                    normalized_score = normalized_score * 0.001  # 99.9% reduction for fintech outlets in non-fintech content
+                
+                # CLIENT FEEDBACK: Additional keyword-based penalties for technical content
+                if specialization_type in ['cybersecurity', 'ai_ml']:
+                    # Check for off-topic keywords in outlet data
+                    outlet_keywords = outlet.get('Keywords', '').lower()
+                    outlet_audience = outlet.get('Audience', '').lower()
+                    all_outlet_text = f"{outlet_name} {outlet_keywords} {outlet_audience}"
+                    
+                    # Define off-topic keyword categories
+                    fintech_keywords = ['fintech', 'payments', 'banking', 'financial', 'digital banking', 'mobile payments']
+                    marketing_keywords = ['marketing', 'advertising', 'media', 'brand', 'campaign', 'creative']
+                    business_keywords = ['business', 'corporate', 'enterprise', 'leadership', 'management']
+                    retail_keywords = ['retail', 'commerce', 'ecommerce', 'shopping', 'consumer']
+                    
+                    # Apply penalties for off-topic keyword matches
+                    fintech_matches = sum(1 for kw in fintech_keywords if kw in all_outlet_text)
+                    marketing_matches = sum(1 for kw in marketing_keywords if kw in all_outlet_text)
+                    business_matches = sum(1 for kw in business_keywords if kw in all_outlet_text)
+                    retail_matches = sum(1 for kw in retail_keywords if kw in all_outlet_text)
+                    
+                    # Apply severe penalties for multiple off-topic keyword matches
+                    total_off_topic_matches = fintech_matches + marketing_matches + business_matches + retail_matches
+                    if total_off_topic_matches >= 3:
+                        normalized_score = normalized_score * 0.001  # 99.9% reduction
+                        
+                    elif total_off_topic_matches >= 2:
+                        normalized_score = normalized_score * 0.01  # 99% reduction
+                        
+                    elif total_off_topic_matches >= 1:
+                        normalized_score = normalized_score * 0.1  # 90% reduction
+                        
             
             # Boost the final score to increase the average match confidence
             boosted_score = normalized_score * 1.5
@@ -802,6 +1104,13 @@ class OutletMatcher:
             
             # Determine outlet focus
             outlet_focus = self._determine_outlet_focus(outlet)
+            
+            # CLIENT FEEDBACK: Add field-level debugging information
+            # Calculate individual field scores for explanation
+            industry_match = self._calculate_industry_match(outlet, industry)
+            keyword_relevance = self._calculate_keyword_relevance(outlet, query)
+            audience_match = self._calculate_audience_match(outlet, query, industry)
+            outlet_expertise = self._calculate_outlet_expertise_match(outlet, query, industry)
             
             # Handle specialized content with specific explanations
             if content_specialization:
@@ -885,7 +1194,6 @@ class OutletMatcher:
                 
             else:
                 # For general content, use standard explanations
-                industry_match = self._calculate_industry_match(outlet, industry)
                 if industry_match > 0.8:
                     reasons.append(f"Strong industry fit: {industry}")
                 elif industry_match > 0.5:
@@ -907,6 +1215,21 @@ class OutletMatcher:
                 
                 if matching_keywords:
                     reasons.append(f"Topic expertise: {', '.join(matching_keywords[:2])}")
+            
+            # CLIENT FEEDBACK: Add field-level debugging information
+            # Show which fields contributed to the match
+            contributing_fields = []
+            if industry_match > 0.3:
+                contributing_fields.append(f"Industry: {industry_match:.1%}")
+            if keyword_relevance > 0.3:
+                contributing_fields.append(f"Keywords: {keyword_relevance:.1%}")
+            if audience_match > 0.3:
+                contributing_fields.append(f"Audience: {audience_match:.1%}")
+            if outlet_expertise > 0.3:
+                contributing_fields.append(f"Expertise: {outlet_expertise:.1%}")
+            
+            if contributing_fields:
+                reasons.append(f"Match factors: {', '.join(contributing_fields)}")
             
             # Add audience match with specific details
             if outlet_audience:
@@ -1074,7 +1397,20 @@ class OutletMatcher:
                 'sustainability': ['sustainability', 'climate', 'environmental', 'green tech', 'renewable energy', 'carbon footprint', 'esg', 'circular economy', 'clean energy', 'climate tech', 'environmental impact', 'green building', 'greenbiz', 'environmental leader'],
                 'real_estate': ['real estate', 'property', 'commercial real estate', 'residential', 'proptech', 'real estate technology', 'property management', 'real estate investment', 'construction tech', 'smart buildings', 'facility management'],
                 'leadership': ['leadership', 'management', 'executive', 'ceo', 'c-suite', 'corporate strategy', 'organizational development', 'change management', 'talent management', 'workplace culture', 'diversity inclusion', 'remote work'],
-                'retail': ['retail', 'commerce', 'ecommerce', 'shopping', 'retail touchpoints', 'martech series']
+                'retail': ['retail', 'commerce', 'ecommerce', 'shopping', 'retail touchpoints', 'martech series'],
+                # CLIENT FEEDBACK: Add specific off-topic verticals that should be excluded
+                'food': ['food', 'food processing', 'food safety', 'agriculture', 'farming', 'food industry', 'food manufacturing', 'food packaging', 'food distribution', 'food service', 'restaurant', 'catering', 'food processing magazine'],
+                'construction': ['construction', 'building', 'infrastructure', 'engineering', 'architecture', 'construction management', 'construction technology', 'building materials', 'construction industry', 'construction news'],
+                'manufacturing': ['manufacturing', 'production', 'industrial', 'factory', 'manufacturing technology', 'supply chain', 'logistics', 'manufacturing industry', 'industrial automation'],
+                'automotive': ['automotive', 'car', 'vehicle', 'automobile', 'auto industry', 'automotive technology', 'transportation', 'mobility', 'automotive manufacturing'],
+                'energy': ['energy', 'power', 'utilities', 'renewable energy', 'oil', 'gas', 'electricity', 'energy industry', 'energy technology', 'power generation'],
+                'transportation': ['transportation', 'logistics', 'shipping', 'freight', 'transport', 'logistics industry', 'supply chain', 'transportation technology'],
+                'hospitality': ['hospitality', 'hotel', 'tourism', 'travel', 'lodging', 'hospitality industry', 'hotel management', 'tourism industry'],
+                'agriculture': ['agriculture', 'farming', 'agtech', 'agricultural', 'crop', 'livestock', 'agricultural technology', 'precision agriculture'],
+                # CLIENT FEEDBACK: Add new focus categories for better exclusion
+                'payments': ['payments', 'payment processing', 'payment technology', 'digital payments', 'mobile payments', 'payment systems', 'payment security', 'payment dive', 'payments source'],
+                'advertising': ['advertising', 'ad', 'media buying', 'creative', 'brand advertising', 'digital advertising', 'programmatic advertising', 'ad tech', 'adweek', 'ad age', 'campaign'],
+                'business_general': ['business', 'business trends', 'business strategy', 'business news', 'business insights', 'business analysis', 'business insider', 'fast company', 'inc', 'fortune', 'forbes', 'cnbc', 'bloomberg']
             }
             
             # Calculate scores for each focus area
@@ -1289,55 +1625,68 @@ class OutletMatcher:
             content_specialization = self._detect_content_specialization(query, industry)
             print(f"Content specialization detected: {content_specialization}")
             
-            # Use much lower thresholds to ensure we get results
-            dynamic_threshold = 0.05  # Very low base threshold
+            # CLIENT FEEDBACK: Higher minimum threshold (20-30% confidence)
+            # Use much higher thresholds to filter out weak matches
+            dynamic_threshold = 0.20  # 20% minimum confidence
             if content_specialization:
                 specialization_type = content_specialization['type']
                 
-                # Define much lower thresholds for different specialization types
+                # Define higher thresholds for different specialization types
                 specialization_thresholds = {
-                    'cybersecurity': 0.10,  # Much lower threshold
-                    'ai_ml': 0.10,          # Much lower threshold
-                    'fintech': 0.10,        # Much lower threshold
-                    'startup': 0.10,        # Much lower threshold
-                    'investment': 0.10,     # Much lower threshold
-                    'marketing': 0.10,      # Much lower threshold
-                    'healthcare': 0.10,     # Much lower threshold
-                    'education': 0.10,      # Much lower threshold
-                    'sustainability': 0.10, # Much lower threshold
-                    'real_estate': 0.10,    # Much lower threshold
-                    'leadership': 0.10      # Much lower threshold
+                    'cybersecurity': 0.25,  # Higher threshold for specialized content
+                    'ai_ml': 0.25,          # Higher threshold for specialized content
+                    'fintech': 0.25,        # Higher threshold for specialized content
+                    'startup': 0.20,        # Moderate threshold
+                    'investment': 0.20,     # Moderate threshold
+                    'marketing': 0.20,      # Moderate threshold
+                    'healthcare': 0.25,     # Higher threshold for specialized content
+                    'education': 0.25,      # Higher threshold for specialized content
+                    'sustainability': 0.20, # Moderate threshold
+                    'real_estate': 0.20,    # Moderate threshold
+                    'leadership': 0.20      # Moderate threshold
                 }
                 
-                dynamic_threshold = specialization_thresholds.get(specialization_type, 0.10)
+                dynamic_threshold = specialization_thresholds.get(specialization_type, 0.20)
             else:
-                dynamic_threshold = 0.05  # Very low default threshold
+                dynamic_threshold = 0.20  # 20% minimum confidence for general content
 
-            print(f"Using threshold: {dynamic_threshold}")
+            print(f"Using threshold: {dynamic_threshold} ({dynamic_threshold * 100:.0f}% confidence)")
 
             matches = []
             processed_count = 0
             
-            for outlet in outlets:
+            # CLIENT FEEDBACK: Early filtering to exclude off-topic outlets before scoring
+            filtered_outlets = self._pre_filter_outlets(outlets, query, industry, content_specialization)
+            print(f"Pre-filtered from {len(outlets)} to {len(filtered_outlets)} outlets")
+            
+            for outlet in filtered_outlets:
                 processed_count += 1
                 if processed_count % 50 == 0:  # Progress indicator
-                    print(f"Processed {processed_count}/{len(outlets)} outlets...")
+                    print(f"Processed {processed_count}/{len(filtered_outlets)} outlets...")
                 
-                # Use comprehensive scoring instead of basic similarity
-                score = self.calculate_comprehensive_score(outlet, query, industry)
+                # Use comprehensive scoring with details for debugging
+                score_details = self.calculate_comprehensive_score_with_details(outlet, query, industry)
+                score = score_details['score']
                 
                 if score >= dynamic_threshold:
                     display_score = min(100, score * 100)
                     explanation = self._generate_match_explanation(outlet, score, query, industry)
                     
+                    # CLIENT FEEDBACK: Add field-level debugging information
+                    field_breakdown = self._generate_field_breakdown(score_details)
+                    
                     matches.append({
                         "outlet": outlet,
                         "score": score,
                         "match_confidence": f"{round(display_score)}%",
-                        "match_explanation": explanation
+                        "match_explanation": explanation,
+                        "field_breakdown": field_breakdown,  # New field for debugging
+                        "content_specialization": content_specialization,
+                        "outlet_focus": score_details.get('outlet_focus')
                     })
 
-            matches.sort(key=lambda x: x['score'], reverse=True)
+            # CLIENT FEEDBACK: Better ranking - prioritize topical matches over general business/tech outlets
+            matches = self._prioritize_topical_matches(matches, content_specialization)
             
             print(f"Found {len(matches)} matches above threshold {dynamic_threshold}")
             
@@ -1354,6 +1703,165 @@ class OutletMatcher:
             import traceback
             traceback.print_exc()
             return []
+
+    def _pre_filter_outlets(self, outlets: List[Dict], query: str, industry: str, content_specialization: Optional[Dict]) -> List[Dict]:
+        """Pre-filter outlets to exclude obvious off-topic ones before scoring."""
+        try:
+            if not content_specialization:
+                return outlets  # No filtering for general content
+            
+            specialization_type = content_specialization['type']
+            filtered_outlets = []
+            
+            # CLIENT FEEDBACK: Aggressive keyword-based filtering for security/AI content
+            if specialization_type in ['cybersecurity', 'ai_ml']:
+                # Define keywords that indicate off-topic outlets
+                off_topic_keywords = [
+                    'fintech', 'payments', 'banking', 'financial', 'retail', 'commerce', 'ecommerce',
+                    'food', 'agriculture', 'farming', 'construction', 'manufacturing', 'automotive',
+                    'energy', 'transportation', 'logistics', 'hospitality', 'tourism', 'travel',
+                    'marketing', 'advertising', 'media', 'brand', 'campaign', 'creative',
+                    'business', 'corporate', 'enterprise', 'leadership', 'management'
+                ]
+                
+                # Define specific outlet name patterns to exclude
+                excluded_patterns = [
+                    'fintech magazine', 'payments dive', 'payments source', 'banking dive',
+                    'food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in',
+                    'cmswire', 'cms wire', 'adweek', 'fast company', 'business insider',
+                    'marketing week', 'campaign', 'ad age', 'financial times', 'american banker',
+                    'time', 'inc', 'fortune', 'forbes', 'cnbc', 'bloomberg'
+                ]
+                
+                for outlet in outlets:
+                    outlet_name = outlet.get('Outlet Name', '').lower()
+                    outlet_keywords = outlet.get('Keywords', '').lower()
+                    outlet_audience = outlet.get('Audience', '').lower()
+                    
+                    # Check for excluded patterns in outlet name
+                    if any(pattern in outlet_name for pattern in excluded_patterns):
+                        print(f"Pre-filtered: {outlet_name} (excluded pattern)")
+                        continue
+                    
+                    # Check for off-topic keywords in outlet data
+                    off_topic_matches = sum(1 for keyword in off_topic_keywords if keyword in outlet_name or keyword in outlet_keywords or keyword in outlet_audience)
+                    
+                    # If outlet has multiple off-topic indicators, exclude it
+                    if off_topic_matches >= 2:
+                        print(f"Pre-filtered: {outlet_name} ({off_topic_matches} off-topic indicators)")
+                        continue
+                    
+                    # Check outlet focus
+                    outlet_focus = self._determine_outlet_focus(outlet)
+                    incompatible_focuses = ['fintech', 'payments', 'marketing', 'advertising', 'business_general', 'retail', 'food', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics']
+                    
+                    if outlet_focus in incompatible_focuses:
+                        print(f"Pre-filtered: {outlet_name} (incompatible focus: {outlet_focus})")
+                        continue
+                    
+                    filtered_outlets.append(outlet)
+            
+            # CLIENT FEEDBACK: Similar filtering for other specialized content
+            elif specialization_type in ['education', 'healthcare']:
+                # Define keywords that indicate off-topic outlets for education/healthcare
+                off_topic_keywords = [
+                    'fintech', 'payments', 'banking', 'financial', 'retail', 'commerce', 'ecommerce',
+                    'food', 'agriculture', 'farming', 'construction', 'manufacturing', 'automotive',
+                    'energy', 'transportation', 'logistics', 'hospitality', 'tourism', 'travel',
+                    'marketing', 'advertising', 'media', 'brand', 'campaign', 'creative'
+                ]
+                
+                # Define specific outlet name patterns to exclude
+                excluded_patterns = [
+                    'fintech magazine', 'payments dive', 'payments source', 'banking dive',
+                    'food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in',
+                    'cmswire', 'cms wire', 'adweek', 'fast company', 'business insider',
+                    'marketing week', 'campaign', 'ad age', 'financial times', 'american banker'
+                ]
+                
+                for outlet in outlets:
+                    outlet_name = outlet.get('Outlet Name', '').lower()
+                    outlet_keywords = outlet.get('Keywords', '').lower()
+                    outlet_audience = outlet.get('Audience', '').lower()
+                    
+                    # Check for excluded patterns in outlet name
+                    if any(pattern in outlet_name for pattern in excluded_patterns):
+                        print(f"Pre-filtered: {outlet_name} (excluded pattern)")
+                        continue
+                    
+                    # Check for off-topic keywords in outlet data
+                    off_topic_matches = sum(1 for keyword in off_topic_keywords if keyword in outlet_name or keyword in outlet_keywords or keyword in outlet_audience)
+                    
+                    # If outlet has multiple off-topic indicators, exclude it
+                    if off_topic_matches >= 2:
+                        print(f"Pre-filtered: {outlet_name} ({off_topic_matches} off-topic indicators)")
+                        continue
+                    
+                    # Check outlet focus
+                    outlet_focus = self._determine_outlet_focus(outlet)
+                    incompatible_focuses = ['fintech', 'payments', 'marketing', 'advertising', 'business_general', 'retail', 'food', 'construction', 'manufacturing', 'agriculture', 'hospitality', 'automotive', 'energy', 'transportation', 'logistics']
+                    
+                    if outlet_focus in incompatible_focuses:
+                        print(f"Pre-filtered: {outlet_name} (incompatible focus: {outlet_focus})")
+                        continue
+                    
+                    filtered_outlets.append(outlet)
+            
+            else:
+                # For other specializations, use basic filtering
+                for outlet in outlets:
+                    outlet_name = outlet.get('Outlet Name', '').lower()
+                    
+                    # Basic pattern exclusion
+                    excluded_patterns = ['food processing', 'retail touchpoints', 'pr daily', 'sc magazine', 'built in']
+                    if any(pattern in outlet_name for pattern in excluded_patterns):
+                        print(f"Pre-filtered: {outlet_name} (basic excluded pattern)")
+                        continue
+                    
+                    filtered_outlets.append(outlet)
+            
+            return filtered_outlets
+            
+        except Exception as e:
+            print(f"Error in pre-filtering: {str(e)}")
+            return outlets  # Return all outlets if filtering fails
+
+    def _generate_field_breakdown(self, score_details: Dict) -> str:
+        """Generate field-level breakdown for debugging."""
+        try:
+            field_scores = score_details.get('field_scores', {})
+            if not field_scores:
+                return "No field scores available"
+            
+            # Filter out zero scores and sort by importance
+            non_zero_fields = {k: v for k, v in field_scores.items() if v > 0.01}
+            
+            if not non_zero_fields:
+                return "All field scores below threshold"
+            
+            # Sort by score value (descending)
+            sorted_fields = sorted(non_zero_fields.items(), key=lambda x: x[1], reverse=True)
+            
+            # Format the breakdown
+            breakdown_parts = []
+            for field_name, score in sorted_fields[:3]:  # Show top 3 fields
+                percentage = score * 100
+                breakdown_parts.append(f"{field_name}: {percentage:.1f}%")
+            
+            return " | ".join(breakdown_parts)
+            
+        except Exception as e:
+            print(f"Error generating field breakdown: {str(e)}")
+            return "Field breakdown unavailable"
+
+    def _prioritize_topical_matches(self, matches: List[Dict], content_specialization: Optional[Dict]) -> List[Dict]:
+        """Sort matches by score descending only (no topical/general grouping)."""
+        try:
+            matches.sort(key=lambda x: -x['score'])
+            return matches
+        except Exception as e:
+            print(f"Error prioritizing matches by score: {str(e)}")
+            return matches
 
     def update_recent_articles(self, outlet_name: str, articles: List[Dict]):
         """Update recent articles for an outlet."""
