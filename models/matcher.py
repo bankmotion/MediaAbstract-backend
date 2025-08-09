@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Set, Tuple
 from supabase import Client
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -8,57 +8,148 @@ from collections import Counter
 import math
 
 class OutletMatcher:
+    """Advanced outlet matching system with optimized scoring and filtering."""
+    
+    # Configuration constants
+    TOPIC_OVERLAP_THRESHOLD = 0.60  # Reduced from 0.70 per client feedback
+    NICHE_KEYWORD_WEIGHT = 0.50     # Reduced from 0.70 for more conservative scoring
+    AUDIENCE_WEIGHT = 4.0           # Reduced from 6.0 for more conservative scoring
+    MIN_SCORE_THRESHOLD = 0.15      # Minimum relevance threshold
+    
+    # Industry-specific exclusions (outlets that shouldn't appear for certain industries)
+    INDUSTRY_EXCLUSIONS = {
+        'cybersecurity': {
+            'Modern Healthcare', 'Payments Dive', 'MedCity News', 'Factor This!',
+            'GreenBiz', 'Construction Dive', 'Search Engine Land', 'The Decoder'
+        },
+        'education': {
+            'Modern Healthcare', 'Payments Dive', 'MedCity News', 'Factor This!',
+            'GreenBiz', 'Construction Dive', 'BleepingComputer', 'The Hacker News',
+            'Security Boulevard', 'Dark Reading', 'TechTalks'
+        },
+        'healthcare': {
+            'BleepingComputer', 'The Hacker News', 'Security Boulevard', 'Dark Reading',
+            'TechTalks', 'Search Engine Land', 'The Decoder'
+        }
+    }
+    
+    # Industry keyword mappings for enhanced matching
+    INDUSTRY_KEYWORDS = {
+        'cybersecurity': {
+            'cybersecurity', 'security', 'cyber', 'hacking', 'malware', 'ransomware',
+            'breach', 'vulnerability', 'threat', 'attack', 'firewall', 'encryption',
+            'compliance', 'gdpr', 'sox', 'pci', 'zero-day', 'phishing', 'social engineering',
+            'penetration testing', 'incident response', 'siem', 'edr', 'xdr', 'mdr',
+            'identity management', 'access control', 'authentication', 'authorization'
+        },
+        'education': {
+            'education', 'educational', 'learning', 'teaching', 'academic', 'school',
+            'university', 'college', 'student', 'teacher', 'professor', 'curriculum',
+            'pedagogy', 'instruction', 'tutoring', 'assessment', 'policy', 'leaders',
+            'edtech', 'edutech', 'k12', 'k-12', 'higher education', 'primary education',
+            'secondary education', 'vocational', 'training', 'skills', 'knowledge',
+            'classroom', 'campus', 'faculty', 'administration', 'e-learning', 'online learning',
+            'distance learning', 'blended learning', 'adaptive learning', 'personalized learning',
+            'educational technology', 'learning management system', 'lms', 'mooc', 'course',
+            'lesson', 'syllabus', 'degree', 'diploma', 'certificate', 'accreditation'
+        },
+        'healthcare': {
+            'healthcare', 'health', 'medical', 'patient', 'clinical', 'hospital',
+            'doctor', 'physician', 'nurse', 'treatment', 'diagnosis', 'therapy',
+            'medicine', 'pharmaceutical', 'biotech', 'telemedicine', 'digital health',
+            'health it', 'ehr', 'electronic health record', 'patient care', 'wellness'
+        }
+    }
+
     def __init__(self, supabase_client: Client):
-        # Initialize spaCy with fallback
-        self.nlp = None
-        try:
-            import spacy
-            self.nlp = spacy.load("en_core_web_sm")
-            print("spaCy model loaded successfully")
-        except Exception as e:
-            print(f"spaCy not available, using TF-IDF fallback: {str(e)}")
-            self.nlp = None
-        
+        """Initialize the outlet matcher with optimized configuration."""
         self.supabase = supabase_client
-        self._vectorizer = TfidfVectorizer(stop_words='english', ngram_range=(1, 3), max_features=5000)
+        self._vectorizer = TfidfVectorizer(
+            stop_words='english', 
+            ngram_range=(1, 3), 
+            max_features=5000
+        )
         
-        # Pre-compute outlet embeddings for efficiency
+        # Initialize NLP with fallback
+        self.nlp = self._initialize_nlp()
+        
+        # Pre-computed data for performance
         self._outlet_embeddings = {}
         self._outlet_texts = {}
-        self._initialize_outlet_embeddings()
+        self._outlet_keywords = {}
+        self._outlet_audiences = {}
+        
+        # Initialize outlet data
+        self._initialize_outlet_data()
 
-    def _initialize_outlet_embeddings(self):
-        """Pre-compute embeddings for all outlets to improve performance."""
+    def _initialize_nlp(self):
+        """Initialize NLP with graceful fallback."""
+        try:
+            import spacy
+            nlp = spacy.load("en_core_web_sm")
+            print("✅ spaCy model loaded successfully")
+            return nlp
+        except Exception as e:
+            print(f"⚠️ spaCy not available, using TF-IDF fallback: {str(e)}")
+            return None
+
+    def _initialize_outlet_data(self):
+        """Pre-compute outlet data for optimal performance."""
         try:
             outlets = self.get_outlets()
-            print(f"Initializing embeddings for {len(outlets)} outlets...")
+            print(f"🔄 Initializing data for {len(outlets)} outlets...")
+            
+            valid_outlets = 0
+            skipped_outlets = 0
             
             for outlet in outlets:
                 outlet_id = outlet.get('id', outlet.get('Outlet Name', ''))
+                
+                # Skip outlets with no valid ID
+                if not outlet_id:
+                    skipped_outlets += 1
+                    continue
+                
+                # Parse semicolon-separated fields
+                self._outlet_keywords[outlet_id] = self._parse_semicolon_field(
+                    outlet.get('Keywords', '')
+                )
+                self._outlet_audiences[outlet_id] = self._parse_semicolon_field(
+                    outlet.get('Audience', '')
+                )
+                
+                # Extract comprehensive text representation
                 outlet_text = self._extract_outlet_text(outlet)
+                
+                # Skip outlets with no meaningful text
+                if not outlet_text.strip():
+                    skipped_outlets += 1
+                    continue
+                
                 self._outlet_texts[outlet_id] = outlet_text
                 
                 # Compute embeddings
-                if self.nlp:
-                    doc = self.nlp(outlet_text)
-                    # Convert numpy vector to Python list for JSON serialization
-                    vector_list = doc.vector.tolist() if hasattr(doc.vector, 'tolist') else list(doc.vector)
-                    self._outlet_embeddings[outlet_id] = {
-                        'vector': vector_list,
-                        'entities': [ent.text.lower() for ent in doc.ents],
-                        'noun_chunks': [chunk.text.lower() for chunk in doc.noun_chunks],
-                        'keywords': self._extract_keywords(doc)
-                    }
-                else:
-                    # Fallback to TF-IDF
-                    self._outlet_embeddings[outlet_id] = {
-                        'text': outlet_text,
-                        'keywords': self._extract_fallback_keywords(outlet_text)
-                    }
+                self._outlet_embeddings[outlet_id] = self._compute_outlet_embedding(
+                    outlet_text, outlet_id
+                )
+                
+                valid_outlets += 1
             
-            print("Outlet embeddings initialized successfully")
+            print(f"✅ Outlet data initialized successfully")
+            print(f"   Valid outlets: {valid_outlets}")
+            print(f"   Skipped outlets: {skipped_outlets}")
+            
         except Exception as e:
-            print(f"Error initializing embeddings: {e}")
+            print(f"❌ Error initializing outlet data: {e}")
+
+    def _parse_semicolon_field(self, field_value: str) -> List[str]:
+        """Parse semicolon-separated field values into clean arrays."""
+        if not field_value:
+            return []
+        
+        # Split by semicolon and clean each value
+        values = [value.strip().lower() for value in field_value.split(';')]
+        return [value for value in values if value]
 
     def _extract_outlet_text(self, outlet: Dict) -> str:
         """Extract comprehensive text representation of outlet."""
@@ -71,6 +162,38 @@ class OutletMatcher:
             outlet.get('Guidelines', '')
         ]
         return ' '.join(filter(None, fields))
+
+    def _compute_outlet_embedding(self, outlet_text: str, outlet_id: str) -> Dict:
+        """Compute outlet embedding using available NLP."""
+        try:
+            if self.nlp and outlet_text.strip():
+                doc = self.nlp(outlet_text)
+                # Ensure vector is not empty
+                if hasattr(doc.vector, 'size') and doc.vector.size > 0:
+                    vector = doc.vector.tolist() if hasattr(doc.vector, 'tolist') else list(doc.vector)
+                else:
+                    # Fallback to TF-IDF if vector is empty
+                    vector = None
+                
+                return {
+                    'vector': vector,
+                    'entities': [ent.text.lower() for ent in doc.ents],
+                    'noun_chunks': [chunk.text.lower() for chunk in doc.noun_chunks],
+                    'keywords': self._extract_keywords(doc)
+                }
+            else:
+                return {
+                    'vector': None,
+                    'text': outlet_text,
+                    'keywords': self._extract_fallback_keywords(outlet_text)
+                }
+        except Exception as e:
+            print(f"⚠️ Error computing embedding for outlet {outlet_id}: {e}")
+            return {
+                'vector': None,
+                'text': outlet_text,
+                'keywords': self._extract_fallback_keywords(outlet_text)
+            }
 
     def _extract_keywords(self, doc) -> List[str]:
         """Extract meaningful keywords using spaCy."""
@@ -100,145 +223,258 @@ class OutletMatcher:
         keywords = [word for word in words if word not in stop_words and len(word) > 2]
         return list(set(keywords))
 
+    def _compute_match_components(self, query_text: str, abstract: str, industry: str, outlet_id: str) -> Dict[str, float]:
+        """Compute all component scores used for matching without any final transformation.
+        Returns a dict with semantic, industry, content, topic, niche, audience, boost, weighted, and base.
+        """
+        # Core components
+        semantic_score = self._calculate_semantic_similarity(query_text, outlet_id)
+        industry_score = self._calculate_industry_relevance(industry, outlet_id)
+        content_score = self._calculate_content_relevance(abstract, outlet_id)
+        topic_score = self._calculate_topic_similarity(query_text, outlet_id)
+        niche_score = self._calculate_niche_keyword_matching(industry, outlet_id)
+        audience_score = self._calculate_audience_relevance(industry, outlet_id)
+
+        # Dynamic weights based on content
+        weights = self._calculate_optimized_weights(abstract, industry)
+
+        weighted = (
+            semantic_score * weights['semantic'] +
+            industry_score * weights['industry'] +
+            content_score * weights['content'] +
+            topic_score * weights['topic'] +
+            niche_score * self.NICHE_KEYWORD_WEIGHT +
+            audience_score * self.AUDIENCE_WEIGHT
+        )
+
+        boost = self._calculate_industry_boost(industry, outlet_id)
+        base = max(0.0, weighted + boost)  # raw, untransformed
+
+        return {
+            'semantic': float(semantic_score),
+            'industry': float(industry_score),
+            'content': float(content_score),
+            'topic': float(topic_score),
+            'niche': float(niche_score),
+            'audience': float(audience_score),
+            'boost': float(boost),
+            'weighted': float(weighted),
+            'base': float(base)
+        }
+
+    def _apply_distribution_curve(self, normalized_value: float) -> float:
+        """Map a [0,1] normalized score into a calibrated display range with smooth spread.
+        Uses a slight power curve to emphasize separation at the top without bunching to 100%.
+        Output range: ~0.32 - 0.84 by default.
+        """
+        x = max(0.0, min(1.0, normalized_value))
+        # Power curve for smoother top-end separation
+        curved = x ** 0.92
+        # Map into display band
+        return 0.32 + 0.52 * curved
+
     def find_matches(self, abstract: str, industry: str, limit: int = 20) -> List[Dict]:
-        """Find matching outlets using advanced semantic analysis."""
+        """Find matching outlets using optimized semantic analysis with batch normalization.
+        Ensures scores are well distributed and deterministically sorted.
+        """
         try:
             outlets = self.get_outlets()
             if not outlets:
                 return []
-            
+
+            # Determine industry category for exclusions
+            industry_category = self._categorize_industry(industry)
+            excluded_outlets = self.INDUSTRY_EXCLUSIONS.get(industry_category, set())
+
             # Create query representation
             query_text = f"{abstract} {industry}"
-            
-            matches = []
+
+            # First pass: compute raw component scores for all valid outlets
+            scored_rows: List[Dict] = []
             for outlet in outlets:
-                outlet_id = outlet.get('id', outlet.get('Outlet Name', ''))
-                
-                # Calculate comprehensive similarity score
-                score = self._calculate_comprehensive_similarity(
-                    query_text, abstract, industry, outlet, outlet_id
-                )
-                
-                # Generate detailed explanation
+                outlet_name = outlet.get('Outlet Name', '')
+                if outlet_name in excluded_outlets:
+                    continue
+
+                outlet_id = outlet.get('id', outlet_name)
+                if not outlet_id or outlet_id not in self._outlet_texts:
+                    continue
+
+                components = self._compute_match_components(query_text, abstract, industry, outlet_id)
+                # Guard against NaNs/invalid values
+                base = components['base'] if np.isfinite(components['base']) else 0.0
+
+                scored_rows.append({
+                    'outlet': outlet,
+                    'outlet_id': outlet_id,
+                    'name': outlet_name,
+                    'components': components,
+                    'base': base
+                })
+
+            if not scored_rows:
+                return []
+
+            # Batch normalization to spread scores evenly
+            bases = [row['base'] for row in scored_rows]
+            min_base = min(bases)
+            max_base = max(bases)
+            spread = max_base - min_base
+
+            # If spread is tiny, use composite ranking to create separation
+            if spread < 1e-6:
+                # Composite rank emphasizing niche and industry, then content/topic
+                def composite_key(row):
+                    c = row['components']
+                    return (
+                        c['niche'] * 0.5 + c['industry'] * 0.3 + c['content'] * 0.15 + c['topic'] * 0.05
+                    )
+                scored_rows.sort(key=composite_key, reverse=True)
+                total = len(scored_rows)
+                for idx, row in enumerate(scored_rows):
+                    rank = idx / max(1, total - 1)
+                    normalized = 1.0 - rank  # top gets 1.0
+                    adjusted = self._apply_distribution_curve(normalized)
+                    # Deterministic tie-breaker using niche/audience micro-adjustment
+                    micro = (row['components']['niche'] * 0.5 + row['components']['audience'] * 0.5) * 0.01
+                    row['final_score'] = float(min(0.85, adjusted + micro))
+            else:
+                # Standard normalization path
+                for row in scored_rows:
+                    normalized = (row['base'] - min_base) / (spread + 1e-9)
+                    adjusted = self._apply_distribution_curve(normalized)
+                    micro = (row['components']['niche'] * 0.5 + row['components']['audience'] * 0.5) * 0.01
+                    row['final_score'] = float(min(0.85, adjusted + micro))
+
+            # Build final matches with explanations
+            for row in scored_rows:
+                score = row['final_score']
                 explanation = self._generate_match_explanation(
-                    query_text, abstract, industry, outlet, outlet_id, score
+                    query_text, abstract, industry, row['outlet'], row['outlet_id'], score
                 )
-                
-                if score > 0.15:  # Moderate minimum relevance threshold
-                    matches.append({
-                        "outlet": outlet,
-                        "score": self._ensure_json_serializable(round(score, 3)),
-                        "match_confidence": f"{round(score * 100)}%",
-                        "match_explanation": explanation
-                    })
-            
-            # Sort by score and return top matches
-            matches.sort(key=lambda x: x['score'], reverse=True)
-            
+                row['result'] = {
+                    "outlet": row['outlet'],
+                    "score": self._ensure_json_serializable(round(score, 3)),
+                    "match_confidence": f"{round(score * 100)}%",
+                    "match_explanation": explanation
+                }
+
+            # Sort by final_score descending and return top-N
+            scored_rows.sort(key=lambda r: r['final_score'], reverse=True)
+            matches = [r['result'] for r in scored_rows if r['final_score'] > self.MIN_SCORE_THRESHOLD]
+
             print(f"\n📊 MATCHING RESULTS:")
             print(f"   Total outlets processed: {len(outlets)}")
+            print(f"   Excluded outlets: {len(excluded_outlets)}")
             print(f"   Matches found: {len(matches)}")
             if matches:
                 print(f"   Score range: {matches[-1]['score']:.3f} - {matches[0]['score']:.3f}")
-            
+
             return matches[:limit]
-            
+
         except Exception as e:
-            print(f"Error in find_matches: {str(e)}")
+            print(f"❌ Error in find_matches: {str(e)}")
             return []
 
+    def _categorize_industry(self, industry: str) -> str:
+        """Categorize industry for exclusion logic."""
+        industry_lower = industry.lower()
+        
+        if any(cyber_term in industry_lower for cyber_term in ['cybersecurity', 'cyber', 'security', 'hacking']):
+            return 'cybersecurity'
+        elif any(edu_term in industry_lower for edu_term in ['education', 'learning', 'academic', 'teaching']):
+            return 'education'
+        elif any(health_term in industry_lower for health_term in ['healthcare', 'health', 'medical', 'patient']):
+            return 'healthcare'
+        
+        return 'general'
+
     def _calculate_comprehensive_similarity(self, query_text: str, abstract: str, industry: str, outlet: Dict, outlet_id: str) -> float:
-        """Calculate comprehensive similarity using multiple advanced techniques."""
+        """Calculate comprehensive similarity using optimized scoring."""
         try:
-            # 1. Semantic similarity using embeddings
-            semantic_score = self._calculate_semantic_similarity_advanced(query_text, outlet_id)
+            # Core similarity components
+            semantic_score = self._calculate_semantic_similarity(query_text, outlet_id)
+            industry_score = self._calculate_industry_relevance(industry, outlet_id)
+            content_score = self._calculate_content_relevance(abstract, outlet_id)
+            topic_score = self._calculate_topic_similarity(query_text, outlet_id)
             
-            # 2. Industry-specific relevance
-            industry_score = self._calculate_industry_relevance_advanced(industry, outlet_id)
+            # Enhanced niche keyword matching
+            niche_score = self._calculate_niche_keyword_matching(industry, outlet_id)
             
-            # 3. Content relevance
-            content_score = self._calculate_content_relevance_advanced(abstract, outlet_id)
+            # Audience relevance with increased weight
+            audience_score = self._calculate_audience_relevance(industry, outlet_id)
             
-            # 4. Topic modeling similarity
-            topic_score = self._calculate_topic_similarity_advanced(query_text, outlet_id)
+            # Dynamic weights based on content type
+            weights = self._calculate_optimized_weights(abstract, industry)
             
-            # 5. Entity overlap
-            entity_score = self._calculate_entity_overlap_advanced(query_text, outlet_id)
-            
-            # 6. Contextual relevance
-            context_score = self._calculate_contextual_relevance_advanced(abstract, industry, outlet_id)
-            
-            # Weighted combination with dynamic weights based on content type
-            weights = self._calculate_dynamic_weights(abstract, industry)
-            
-            # Calculate base weighted score
-            base_weighted_score = (
+            # Calculate weighted score
+            weighted_score = (
                 semantic_score * weights['semantic'] +
                 industry_score * weights['industry'] +
                 content_score * weights['content'] +
                 topic_score * weights['topic'] +
-                entity_score * weights['entity'] +
-                context_score * weights['context']
+                niche_score * self.NICHE_KEYWORD_WEIGHT +
+                audience_score * self.AUDIENCE_WEIGHT
             )
             
-            # Apply industry-specific boosting for excellent matches
+            # Apply industry-specific boosting
             industry_boost = self._calculate_industry_boost(industry, outlet_id)
             
-            # Apply moderate scaling for better differentiation
-            if base_weighted_score > 0.8:
-                # Excellent matches get moderate boost
-                final_score = base_weighted_score + (base_weighted_score - 0.8) * 1.0 + industry_boost
-            elif base_weighted_score > 0.6:
-                # Very good matches get slight boost
-                final_score = base_weighted_score + (base_weighted_score - 0.6) * 0.5 + industry_boost
-            elif base_weighted_score > 0.4:
-                # Good matches get minimal boost
-                final_score = base_weighted_score + (base_weighted_score - 0.4) * 0.25 + industry_boost
-            else:
-                # Poor matches get slight boost instead of penalty
-                final_score = base_weighted_score * 1.1 + industry_boost
+            # Apply score transformation for better differentiation
+            final_score = self._apply_optimized_score_transformation(weighted_score + industry_boost)
             
-            final_score = min(1.0, final_score)
+            # Cap the final score to avoid 100% matches
+            final_score = min(0.85, final_score)
             
-            # Apply non-linear transformation for better differentiation
-            final_score = self._apply_score_transformation(final_score)
-            
-            # Ensure we return a Python float
-            return float(min(1.0, final_score))
+            return float(final_score)
             
         except Exception as e:
-            print(f"Error calculating comprehensive similarity: {e}")
+            print(f"❌ Error calculating comprehensive similarity: {e}")
             return 0.0
 
-    def _calculate_semantic_similarity_advanced(self, query_text: str, outlet_id: str) -> float:
-        """Calculate semantic similarity using advanced NLP techniques."""
+    def _calculate_semantic_similarity(self, query_text: str, outlet_id: str) -> float:
+        """Calculate semantic similarity using available NLP."""
         try:
             if self.nlp and outlet_id in self._outlet_embeddings:
-                # Use spaCy vectors for semantic similarity
                 query_doc = self.nlp(query_text.lower())
                 outlet_vector = self._outlet_embeddings[outlet_id]['vector']
                 
-                # Convert outlet_vector back to numpy array if it's a list
+                # Check if outlet vector exists and is valid
+                if outlet_vector is None or not outlet_vector:
+                    return self._calculate_tfidf_similarity(query_text, self._outlet_texts.get(outlet_id, ''))
+                
+                # Convert to numpy array if it's a list
                 if isinstance(outlet_vector, list):
                     outlet_vector = np.array(outlet_vector)
                 
-                # Calculate cosine similarity between vectors
-                similarity = np.dot(query_doc.vector, outlet_vector) / (
-                    np.linalg.norm(query_doc.vector) * np.linalg.norm(outlet_vector)
-                )
+                # Validate vector dimensions
+                if outlet_vector.size == 0:
+                    return self._calculate_tfidf_similarity(query_text, self._outlet_texts.get(outlet_id, ''))
                 
-                # Convert numpy float to Python float
+                # Check if vectors have compatible dimensions
+                if query_doc.vector.size != outlet_vector.size:
+                    return self._calculate_tfidf_similarity(query_text, self._outlet_texts.get(outlet_id, ''))
+                
+                # Calculate cosine similarity
+                dot_product = np.dot(query_doc.vector, outlet_vector)
+                query_norm = np.linalg.norm(query_doc.vector)
+                outlet_norm = np.linalg.norm(outlet_vector)
+                
+                # Avoid division by zero
+                if query_norm == 0 or outlet_norm == 0:
+                    return 0.0
+                
+                similarity = dot_product / (query_norm * outlet_norm)
                 return float(max(0.0, similarity))
             else:
-                # Fallback to TF-IDF
                 return self._calculate_tfidf_similarity(query_text, self._outlet_texts.get(outlet_id, ''))
                 
         except Exception as e:
-            print(f"Error in semantic similarity: {e}")
-            return 0.0
+            print(f"❌ Error in semantic similarity for outlet {outlet_id}: {e}")
+            return self._calculate_tfidf_similarity(query_text, self._outlet_texts.get(outlet_id, ''))
 
-    def _calculate_industry_relevance_advanced(self, industry: str, outlet_id: str) -> float:
-        """Calculate industry relevance using advanced techniques."""
+    def _calculate_industry_relevance(self, industry: str, outlet_id: str) -> float:
+        """Calculate industry relevance with enhanced keyword matching."""
         try:
             if outlet_id not in self._outlet_embeddings:
                 return 0.0
@@ -246,95 +482,70 @@ class OutletMatcher:
             outlet_text = self._outlet_texts[outlet_id].lower()
             industry_lower = industry.lower()
             
-            # 1. Direct keyword matching (higher weight for exact matches)
+            # Direct keyword matching
             keyword_score = self._calculate_keyword_overlap(industry_lower, outlet_text)
             
-            # 2. Enhanced semantic similarity
-            semantic_score = self._calculate_tfidf_similarity(industry_lower, outlet_text)
-            
-            # 3. Entity matching
-            entity_score = self._calculate_entity_matching(industry_lower, outlet_id)
-            
-            # 4. Contextual relevance
-            context_score = self._calculate_contextual_industry_relevance(industry_lower, outlet_text)
-            
-            # 5. Industry-specific keyword matching
+            # Industry-specific keyword matching
             industry_keyword_score = self._calculate_industry_specific_keywords(industry_lower, outlet_text)
             
-            # Weighted combination with higher emphasis on keyword matching
+            # Semantic similarity
+            semantic_score = self._calculate_tfidf_similarity(industry_lower, outlet_text)
+            
+            # Weighted combination
             base_score = (
-                keyword_score * 0.35 + 
-                semantic_score * 0.25 + 
-                entity_score * 0.15 + 
-                context_score * 0.15 + 
-                industry_keyword_score * 0.10
+                keyword_score * 0.4 + 
+                industry_keyword_score * 0.4 + 
+                semantic_score * 0.2
             )
             
-            # Apply moderate non-linear scaling for better differentiation
-            if base_score > 0.8:
-                return 0.85 + (base_score - 0.8) * 0.75  # 85-100% for excellent industry matches
-            elif base_score > 0.6:
-                return 0.70 + (base_score - 0.6) * 0.75  # 70-85% for very good matches
-            elif base_score > 0.4:
-                return 0.55 + (base_score - 0.4) * 0.75  # 55-70% for good matches
-            elif base_score > 0.2:
-                return 0.40 + (base_score - 0.2) * 0.75  # 40-55% for moderate matches
-            elif base_score > 0.1:
-                return 0.25 + (base_score - 0.1) * 1.5   # 25-40% for weak matches
-            else:
-                return base_score * 2.5  # 0-25% for poor matches
+            # Apply non-linear scaling for better differentiation
+            return self._apply_industry_score_scaling(base_score)
             
         except Exception as e:
-            print(f"Error in industry relevance: {e}")
+            print(f"❌ Error in industry relevance: {e}")
             return 0.0
 
-    def _calculate_content_relevance_advanced(self, abstract: str, outlet_id: str) -> float:
-        """Calculate content relevance using advanced NLP."""
+    def _calculate_content_relevance(self, abstract: str, outlet_id: str) -> float:
+        """Calculate content relevance using optimized NLP."""
         try:
             if outlet_id not in self._outlet_embeddings:
                 return 0.0
             
             outlet_text = self._outlet_texts[outlet_id]
             
-            # 1. Topic similarity
-            topic_score = self._calculate_topic_similarity_advanced(abstract, outlet_id)
+            # Topic similarity
+            topic_score = self._calculate_topic_similarity(abstract, outlet_id)
             
-            # 2. Keyword overlap
+            # Keyword overlap
             keyword_score = self._calculate_keyword_overlap(abstract.lower(), outlet_text.lower())
             
-            # 3. Semantic similarity
+            # Semantic similarity
             semantic_score = self._calculate_tfidf_similarity(abstract, outlet_text)
             
-            # 4. Technical term matching
+            # Technical term matching
             tech_score = self._calculate_technical_term_matching(abstract, outlet_text)
             
             # Weighted combination
-            base_score = (topic_score * 0.3 + keyword_score * 0.25 + semantic_score * 0.25 + tech_score * 0.2)
+            base_score = (
+                topic_score * 0.3 + 
+                keyword_score * 0.3 + 
+                semantic_score * 0.25 + 
+                tech_score * 0.15
+            )
             
-            # Apply non-linear scaling for better differentiation
-            if base_score > 0.8:
-                return 0.85 + (base_score - 0.8) * 0.75  # 85-92% for excellent content matches
-            elif base_score > 0.6:
-                return 0.65 + (base_score - 0.6) * 1.0   # 65-85% for very good matches
-            elif base_score > 0.4:
-                return 0.45 + (base_score - 0.4) * 1.0   # 45-65% for good matches
-            elif base_score > 0.2:
-                return 0.25 + (base_score - 0.2) * 1.0   # 25-45% for moderate matches
-            else:
-                return base_score * 1.25  # 0-25% for weak matches
+            return self._apply_content_score_scaling(base_score)
             
         except Exception as e:
-            print(f"Error in content relevance: {e}")
+            print(f"❌ Error in content relevance: {e}")
             return 0.0
 
-    def _calculate_topic_similarity_advanced(self, query_text: str, outlet_id: str) -> float:
-        """Calculate topic similarity using advanced topic modeling."""
+    def _calculate_topic_similarity(self, query_text: str, outlet_id: str) -> float:
+        """Calculate topic similarity with reduced threshold."""
         try:
             if outlet_id not in self._outlet_embeddings:
                 return 0.0
             
-            # Extract topics from query and outlet
-            query_topics = self._extract_topics_advanced(query_text)
+            query_topics = self._extract_topics(query_text)
             outlet_topics = self._outlet_embeddings[outlet_id].get('keywords', [])
             
             if not query_topics or not outlet_topics:
@@ -347,106 +558,102 @@ class OutletMatcher:
             intersection = query_set.intersection(outlet_set)
             union = query_set.union(outlet_set)
             
-            return len(intersection) / len(union) if union else 0.0
+            similarity = len(intersection) / len(union) if union else 0.0
+            
+            # Apply reduced threshold for better matching
+            return similarity if similarity >= self.TOPIC_OVERLAP_THRESHOLD else similarity * 0.5
             
         except Exception as e:
-            print(f"Error in topic similarity: {e}")
+            print(f"❌ Error in topic similarity: {e}")
             return 0.0
 
-    def _calculate_entity_overlap_advanced(self, query_text: str, outlet_id: str) -> float:
-        """Calculate entity overlap using advanced entity recognition."""
+    def _calculate_niche_keyword_matching(self, industry: str, outlet_id: str) -> float:
+        """Calculate niche keyword matching with enhanced weight."""
         try:
-            if outlet_id not in self._outlet_embeddings:
+            if outlet_id not in self._outlet_keywords:
                 return 0.0
             
-            # Extract entities from query
-            if self.nlp:
-                query_doc = self.nlp(query_text.lower())
-                query_entities = set([ent.text.lower() for ent in query_doc.ents])
-            else:
-                query_entities = set(self._extract_fallback_keywords(query_text))
+            industry_lower = industry.lower()
+            outlet_keywords = self._outlet_keywords[outlet_id]
             
-            # Get outlet entities
-            outlet_entities = set(self._outlet_embeddings[outlet_id].get('entities', []))
+            # Get industry-specific keywords
+            industry_keywords = self.INDUSTRY_KEYWORDS.get(
+                self._categorize_industry(industry), set()
+            )
             
-            if not query_entities or not outlet_entities:
+            if not industry_keywords:
                 return 0.0
             
-            # Calculate overlap
-            intersection = query_entities.intersection(outlet_entities)
-            union = query_entities.union(outlet_entities)
+            # Calculate keyword matches
+            matches = 0
+            for outlet_keyword in outlet_keywords:
+                if outlet_keyword in industry_keywords:
+                    matches += 1
             
-            return len(intersection) / len(union) if union else 0.0
+            # Calculate score based on match ratio
+            score = matches / len(industry_keywords) if industry_keywords else 0.0
+            
+            # Apply enhanced weighting for niche keywords
+            return score * self.NICHE_KEYWORD_WEIGHT
             
         except Exception as e:
-            print(f"Error in entity overlap: {e}")
+            print(f"❌ Error in niche keyword matching: {e}")
             return 0.0
 
-    def _calculate_contextual_relevance_advanced(self, abstract: str, industry: str, outlet_id: str) -> float:
-        """Calculate contextual relevance using advanced context analysis."""
+    def _calculate_audience_relevance(self, industry: str, outlet_id: str) -> float:
+        """Calculate audience relevance with increased weight."""
         try:
-            if outlet_id not in self._outlet_embeddings:
+            if outlet_id not in self._outlet_audiences:
                 return 0.0
             
-            outlet_text = self._outlet_texts[outlet_id]
+            industry_lower = industry.lower()
+            outlet_audiences = self._outlet_audiences[outlet_id]
             
-            # 1. Industry context matching
-            industry_context = self._extract_industry_context(industry)
-            industry_context_score = self._calculate_context_matching(industry_context, outlet_text)
+            # Calculate audience overlap
+            matches = 0
+            for audience in outlet_audiences:
+                if any(term in audience for term in industry_lower.split()):
+                    matches += 1
             
-            # 2. Abstract context matching
-            abstract_context = self._extract_abstract_context(abstract)
-            abstract_context_score = self._calculate_context_matching(abstract_context, outlet_text)
+            # Calculate score
+            score = matches / len(outlet_audiences) if outlet_audiences else 0.0
             
-            # 3. Combined context analysis
-            combined_context = f"{abstract} {industry}"
-            combined_context_score = self._calculate_context_matching(combined_context, outlet_text)
-            
-            # Weighted combination
-            return (industry_context_score * 0.4 + abstract_context_score * 0.3 + combined_context_score * 0.3)
+            # Apply audience weight boost
+            return score * self.AUDIENCE_WEIGHT
             
         except Exception as e:
-            print(f"Error in contextual relevance: {e}")
+            print(f"❌ Error in audience relevance: {e}")
             return 0.0
 
-    def _calculate_dynamic_weights(self, abstract: str, industry: str) -> Dict[str, float]:
-        """Calculate dynamic weights based on content characteristics."""
-        # Analyze content type and adjust weights accordingly
+    def _calculate_optimized_weights(self, abstract: str, industry: str) -> Dict[str, float]:
+        """Calculate optimized weights based on content characteristics."""
         abstract_lower = abstract.lower()
         industry_lower = industry.lower()
         
-        # Default weights with higher emphasis on industry relevance
+        # More conservative base weights
         weights = {
             'semantic': 0.20,
-            'industry': 0.35,  # Higher weight for industry relevance
+            'industry': 0.25,
             'content': 0.20,
-            'topic': 0.15,
-            'entity': 0.05,
-            'context': 0.05
+            'topic': 0.25,
+            'niche': 0.10
         }
         
         # Adjust based on content characteristics
         if any(tech_term in abstract_lower for tech_term in ['ai', 'artificial intelligence', 'machine learning', 'technology']):
-            weights['content'] += 0.05
-            weights['topic'] += 0.05
-            weights['semantic'] -= 0.05
-            weights['industry'] -= 0.05
+            weights['content'] += 0.03
+            weights['topic'] += 0.03
+            weights['semantic'] -= 0.03
+            weights['industry'] -= 0.03
         
-        # Special handling for education industry
-        if any(edu_term in industry_lower for edu_term in ['education', 'learning', 'academic', 'teaching', 'school', 'university']):
-            weights['industry'] += 0.10  # Much higher weight for education
-            weights['context'] += 0.05
-            weights['content'] -= 0.05
-            weights['topic'] -= 0.05
-            weights['semantic'] -= 0.05
-        
-        # Special handling for healthcare industry
-        if any(health_term in industry_lower for health_term in ['healthcare', 'health', 'medical', 'patient']):
-            weights['industry'] += 0.10
-            weights['context'] += 0.05
-            weights['content'] -= 0.05
-            weights['topic'] -= 0.05
-            weights['semantic'] -= 0.05
+        # Industry-specific adjustments (more conservative)
+        industry_category = self._categorize_industry(industry)
+        if industry_category in ['education', 'healthcare', 'cybersecurity']:
+            weights['industry'] += 0.05  # Reduced from 0.10
+            weights['niche'] += 0.03     # Reduced from 0.05
+            weights['content'] -= 0.03   # Reduced from 0.05
+            weights['topic'] -= 0.03     # Reduced from 0.05
+            weights['semantic'] -= 0.02  # Reduced from 0.05
         
         # Normalize weights
         total = sum(weights.values())
@@ -454,26 +661,54 @@ class OutletMatcher:
         
         return weights
 
-    def _apply_score_transformation(self, score: float) -> float:
-        """Apply non-linear transformation for better score differentiation."""
-        if score > 0.8:
-            result = 0.85 + (score - 0.8) * 0.75  # 85-100% for excellent matches
-        elif score > 0.6:
-            result = 0.70 + (score - 0.6) * 0.75  # 70-85% for very good matches
-        elif score > 0.4:
-            result = 0.50 + (score - 0.4) * 1.0   # 50-70% for good matches
-        elif score > 0.2:
-            result = 0.30 + (score - 0.2) * 1.0   # 30-50% for moderate matches
-        elif score > 0.1:
-            result = 0.15 + (score - 0.1) * 1.5   # 15-30% for weak matches
+    def _apply_optimized_score_transformation(self, score: float) -> float:
+        """Apply optimized score transformation for more realistic differentiation."""
+        # More conservative scoring to avoid 100% matches
+        if score > 0.85:
+            result = 0.75 + (score - 0.85) * 0.5  # 75-80% for excellent matches
+        elif score > 0.7:
+            result = 0.65 + (score - 0.7) * 0.67  # 65-75% for very good matches
+        elif score > 0.5:
+            result = 0.50 + (score - 0.5) * 0.75  # 50-65% for good matches
+        elif score > 0.3:
+            result = 0.35 + (score - 0.3) * 0.75  # 35-50% for moderate matches
+        elif score > 0.15:
+            result = 0.20 + (score - 0.15) * 1.0  # 20-35% for weak matches
         else:
-            result = score * 1.5  # 0-15% for poor matches
+            result = score * 1.33  # 0-20% for poor matches
         
-        # Ensure we return a Python float
         return float(result)
 
-    def _extract_topics_advanced(self, text: str) -> List[str]:
-        """Extract topics using advanced NLP techniques."""
+    def _apply_industry_score_scaling(self, score: float) -> float:
+        """Apply industry-specific score scaling with more conservative ranges."""
+        if score > 0.8:
+            return 0.70 + (score - 0.8) * 0.5  # 70-75% for excellent industry matches
+        elif score > 0.6:
+            return 0.60 + (score - 0.6) * 0.5  # 60-70% for very good matches
+        elif score > 0.4:
+            return 0.45 + (score - 0.4) * 0.75  # 45-60% for good matches
+        elif score > 0.2:
+            return 0.30 + (score - 0.2) * 0.75  # 30-45% for moderate matches
+        elif score > 0.1:
+            return 0.20 + (score - 0.1) * 1.0  # 20-30% for weak matches
+        else:
+            return score * 2.0  # 0-20% for poor matches
+
+    def _apply_content_score_scaling(self, score: float) -> float:
+        """Apply content-specific score scaling with more conservative ranges."""
+        if score > 0.8:
+            return 0.70 + (score - 0.8) * 0.5  # 70-75% for excellent content matches
+        elif score > 0.6:
+            return 0.55 + (score - 0.6) * 0.75  # 55-70% for very good matches
+        elif score > 0.4:
+            return 0.40 + (score - 0.4) * 0.75  # 40-55% for good matches
+        elif score > 0.2:
+            return 0.25 + (score - 0.2) * 0.75  # 25-40% for moderate matches
+        else:
+            return score * 1.25  # 0-25% for weak matches
+
+    def _extract_topics(self, text: str) -> List[str]:
+        """Extract topics using available NLP."""
         try:
             if self.nlp:
                 doc = self.nlp(text.lower())
@@ -498,7 +733,7 @@ class OutletMatcher:
                 return self._extract_fallback_keywords(text)
                 
         except Exception as e:
-            print(f"Error extracting topics: {e}")
+            print(f"❌ Error extracting topics: {e}")
             return []
 
     def _calculate_keyword_overlap(self, text1: str, text2: str) -> float:
@@ -508,7 +743,11 @@ class OutletMatcher:
             words2 = set(text2.lower().split())
             
             # Remove common stop words
-            stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'this', 'that', 'these', 'those'}
+            stop_words = {
+                'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+                'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did',
+                'will', 'would', 'could', 'should', 'may', 'might', 'can', 'this', 'that', 'these', 'those'
+            }
             words1 = words1 - stop_words
             words2 = words2 - stop_words
             
@@ -525,93 +764,45 @@ class OutletMatcher:
                 'education', 'educational', 'learning', 'teaching', 'academic', 'school',
                 'university', 'college', 'student', 'teacher', 'professor', 'curriculum',
                 'healthcare', 'health', 'medical', 'patient', 'clinical', 'hospital',
-                'technology', 'tech', 'software', 'ai', 'artificial intelligence'
+                'technology', 'tech', 'software', 'ai', 'artificial intelligence',
+                'cybersecurity', 'security', 'cyber', 'hacking', 'malware'
             }
             
             important_matches = intersection.intersection(important_terms)
             if important_matches:
-                # Boost score for important term matches
                 boost = len(important_matches) * 0.1
                 base_score = min(1.0, base_score + boost)
             
             return base_score
             
         except Exception as e:
-            print(f"Error in keyword overlap: {e}")
+            print(f"❌ Error in keyword overlap: {e}")
             return 0.0
 
-    def _calculate_entity_matching(self, industry: str, outlet_id: str) -> float:
-        """Calculate entity matching between industry and outlet."""
+    def _calculate_industry_specific_keywords(self, industry: str, outlet_text: str) -> float:
+        """Calculate industry-specific keyword matching."""
         try:
-            if outlet_id not in self._outlet_embeddings:
-                return 0.0
+            industry_lower = industry.lower()
+            industry_category = self._categorize_industry(industry)
             
-            outlet_entities = set(self._outlet_embeddings[outlet_id].get('entities', []))
-            industry_words = set(industry.lower().split())
+            # Get industry keywords
+            industry_keywords = self.INDUSTRY_KEYWORDS.get(industry_category, set())
             
-            if not outlet_entities or not industry_words:
-                return 0.0
+            if not industry_keywords:
+                return self._calculate_keyword_overlap(industry_lower, outlet_text)
             
-            # Find matching entities
-            matches = 0
-            for word in industry_words:
-                if len(word) > 2 and any(word in entity for entity in outlet_entities):
-                    matches += 1
+            # Calculate keyword matching
+            matching_keywords = [keyword for keyword in industry_keywords if keyword in outlet_text]
             
-            return matches / len(industry_words) if industry_words else 0.0
+            if matching_keywords:
+                total_matches = sum(outlet_text.count(keyword) for keyword in matching_keywords)
+                score = min(1.0, total_matches / (len(outlet_text.split()) * 0.1))
+                return score
             
-        except Exception as e:
-            print(f"Error in entity matching: {e}")
             return 0.0
-
-    def _calculate_contextual_industry_relevance(self, industry: str, outlet_text: str) -> float:
-        """Calculate contextual industry relevance."""
-        try:
-            # Extract industry-related context
-            industry_context = self._extract_industry_context(industry)
-            return self._calculate_context_matching(industry_context, outlet_text)
             
         except Exception as e:
-            print(f"Error in contextual industry relevance: {e}")
-            return 0.0
-
-    def _extract_industry_context(self, industry: str) -> str:
-        """Extract industry context and related terms."""
-        # This could be expanded with industry-specific knowledge bases
-        industry_lower = industry.lower()
-        
-        # Add related terms based on industry
-        context_terms = []
-        if 'education' in industry_lower:
-            context_terms.extend(['learning', 'teaching', 'academic', 'student', 'curriculum'])
-        elif 'technology' in industry_lower:
-            context_terms.extend(['innovation', 'digital', 'software', 'platform'])
-        elif 'healthcare' in industry_lower:
-            context_terms.extend(['medical', 'health', 'patient', 'clinical'])
-        
-        return f"{industry} {' '.join(context_terms)}"
-
-    def _extract_abstract_context(self, abstract: str) -> str:
-        """Extract context from abstract."""
-        # Extract key concepts and themes
-        if self.nlp:
-            doc = self.nlp(abstract.lower())
-            context_terms = []
-            
-            for token in doc:
-                if token.pos_ in ['NOUN', 'ADJ'] and len(token.text) > 3 and not token.is_stop:
-                    context_terms.append(token.text)
-            
-            return f"{abstract} {' '.join(context_terms[:10])}"
-        else:
-            return abstract
-
-    def _calculate_context_matching(self, context: str, outlet_text: str) -> float:
-        """Calculate context matching between context and outlet text."""
-        try:
-            return self._calculate_tfidf_similarity(context, outlet_text)
-        except Exception as e:
-            print(f"Error in context matching: {e}")
+            print(f"❌ Error in industry-specific keyword matching: {e}")
             return 0.0
 
     def _calculate_technical_term_matching(self, abstract: str, outlet_text: str) -> float:
@@ -631,78 +822,7 @@ class OutletMatcher:
             return len(matching_terms) / len(tech_terms) if tech_terms else 0.0
             
         except Exception as e:
-            print(f"Error in technical term matching: {e}")
-            return 0.0
-
-    def _calculate_industry_specific_keywords(self, industry: str, outlet_text: str) -> float:
-        """Calculate industry-specific keyword matching."""
-        try:
-            industry_lower = industry.lower()
-            
-            # Define industry-specific keyword mappings
-            industry_keywords = {
-                'education': [
-                    'education', 'educational', 'learning', 'teaching', 'academic', 'school',
-                    'university', 'college', 'student', 'teacher', 'professor', 'curriculum',
-                    'pedagogy', 'instruction', 'tutoring', 'assessment', 'policy', 'leaders',
-                    'edtech', 'edutech', 'k12', 'k-12', 'higher education', 'primary education',
-                    'secondary education', 'vocational', 'training', 'skills', 'knowledge',
-                    'classroom', 'campus', 'faculty', 'administration', 'e-learning', 'online learning',
-                    'distance learning', 'blended learning', 'adaptive learning', 'personalized learning',
-                    'educational technology', 'learning management system', 'lms', 'mooc', 'course',
-                    'lesson', 'syllabus', 'degree', 'diploma', 'certificate', 'accreditation'
-                ],
-                'healthcare': [
-                    'healthcare', 'health', 'medical', 'patient', 'clinical', 'hospital',
-                    'doctor', 'physician', 'nurse', 'treatment', 'diagnosis', 'therapy',
-                    'medicine', 'pharmaceutical', 'biotech', 'telemedicine', 'digital health',
-                    'health it', 'ehr', 'electronic health record', 'patient care', 'wellness'
-                ],
-                'technology': [
-                    'technology', 'tech', 'software', 'hardware', 'digital', 'innovation',
-                    'ai', 'artificial intelligence', 'machine learning', 'data science',
-                    'cybersecurity', 'cloud computing', 'blockchain', 'iot', 'internet of things',
-                    'automation', 'robotics', 'virtual reality', 'augmented reality', 'vr', 'ar'
-                ],
-                'finance': [
-                    'finance', 'financial', 'banking', 'investment', 'fintech', 'payments',
-                    'cryptocurrency', 'blockchain', 'trading', 'wealth management', 'insurance',
-                    'lending', 'credit', 'debit', 'mobile payments', 'digital banking'
-                ],
-                'marketing': [
-                    'marketing', 'advertising', 'brand', 'campaign', 'digital marketing',
-                    'social media', 'content marketing', 'seo', 'sem', 'ppc', 'email marketing',
-                    'influencer', 'analytics', 'conversion', 'lead generation', 'customer acquisition'
-                ]
-            }
-            
-            # Find matching industry
-            matching_industry = None
-            for ind, keywords in industry_keywords.items():
-                if ind in industry_lower or any(keyword in industry_lower for keyword in keywords):
-                    matching_industry = ind
-                    break
-            
-            if not matching_industry:
-                # Default to general matching
-                return self._calculate_keyword_overlap(industry_lower, outlet_text)
-            
-            # Calculate keyword matching for the specific industry
-            keywords = industry_keywords[matching_industry]
-            matching_keywords = [keyword for keyword in keywords if keyword in outlet_text]
-            
-            # Calculate score based on keyword density
-            if matching_keywords:
-                # Count occurrences of matching keywords
-                total_matches = sum(outlet_text.count(keyword) for keyword in matching_keywords)
-                # Normalize by text length and number of keywords
-                score = min(1.0, total_matches / (len(outlet_text.split()) * 0.1))
-                return score
-            
-            return 0.0
-            
-        except Exception as e:
-            print(f"Error in industry-specific keyword matching: {e}")
+            print(f"❌ Error in technical term matching: {e}")
             return 0.0
 
     def _calculate_industry_boost(self, industry: str, outlet_id: str) -> float:
@@ -713,113 +833,63 @@ class OutletMatcher:
             
             outlet_text = self._outlet_texts[outlet_id].lower()
             industry_lower = industry.lower()
+            industry_category = self._categorize_industry(industry)
             
-            # Define high-value industry keywords that deserve extra boost
-            high_value_keywords = {
-                'education': [
-                    'education', 'educational', 'learning', 'teaching', 'academic', 'school',
-                    'university', 'college', 'student', 'teacher', 'professor', 'curriculum',
-                    'pedagogy', 'instruction', 'tutoring', 'assessment', 'policy', 'leaders',
-                    'edtech', 'edutech', 'k12', 'k-12', 'higher education', 'primary education',
-                    'secondary education', 'vocational', 'training', 'skills', 'knowledge',
-                    'classroom', 'campus', 'faculty', 'administration', 'e-learning', 'online learning',
-                    'distance learning', 'blended learning', 'adaptive learning', 'personalized learning',
-                    'educational technology', 'learning management system', 'lms', 'mooc', 'course',
-                    'lesson', 'syllabus', 'degree', 'diploma', 'certificate', 'accreditation'
-                ],
-                'healthcare': [
-                    'healthcare', 'health', 'medical', 'patient', 'clinical', 'hospital',
-                    'doctor', 'physician', 'nurse', 'treatment', 'diagnosis', 'therapy',
-                    'medicine', 'pharmaceutical', 'biotech', 'telemedicine', 'digital health',
-                    'health it', 'ehr', 'electronic health record', 'patient care', 'wellness'
-                ],
-                'technology': [
-                    'technology', 'tech', 'software', 'hardware', 'digital', 'innovation',
-                    'ai', 'artificial intelligence', 'machine learning', 'data science',
-                    'cybersecurity', 'cloud computing', 'blockchain', 'iot', 'internet of things',
-                    'automation', 'robotics', 'virtual reality', 'augmented reality', 'vr', 'ar'
-                ],
-                'finance': [
-                    'finance', 'financial', 'banking', 'investment', 'fintech', 'payments',
-                    'cryptocurrency', 'blockchain', 'trading', 'wealth management', 'insurance',
-                    'lending', 'credit', 'debit', 'mobile payments', 'digital banking'
-                ],
-                'marketing': [
-                    'marketing', 'advertising', 'brand', 'campaign', 'digital marketing',
-                    'social media', 'content marketing', 'seo', 'sem', 'ppc', 'email marketing',
-                    'influencer', 'analytics', 'conversion', 'lead generation', 'customer acquisition'
-                ]
-            }
+            # Get high-value keywords for the industry
+            high_value_keywords = self.INDUSTRY_KEYWORDS.get(industry_category, set())
             
-            # Find matching industry
-            matching_industry = None
-            for ind, keywords in high_value_keywords.items():
-                if ind in industry_lower or any(keyword in industry_lower for keyword in keywords):
-                    matching_industry = ind
-                    break
-            
-            if not matching_industry:
+            if not high_value_keywords:
                 return 0.0
             
             # Calculate boost based on high-value keyword matches
-            keywords = high_value_keywords[matching_industry]
-            matching_keywords = [keyword for keyword in keywords if keyword in outlet_text]
+            matching_keywords = [keyword for keyword in high_value_keywords if keyword in outlet_text]
             
             if matching_keywords:
-                # Count high-value keyword occurrences
                 total_matches = sum(outlet_text.count(keyword) for keyword in matching_keywords)
-                # Calculate boost (0.10 to 0.25 for excellent matches)
                 boost = min(0.25, total_matches * 0.03)
                 return boost
             
             return 0.0
             
         except Exception as e:
-            print(f"Error in industry boost calculation: {e}")
+            print(f"❌ Error in industry boost calculation: {e}")
             return 0.0
 
     def _generate_match_explanation(self, query_text: str, abstract: str, industry: str, outlet: Dict, outlet_id: str, score: float) -> List[str]:
-        """Generate detailed match explanation using advanced analysis."""
+        """Generate detailed match explanation."""
         try:
             explanation = []
             
-            # Add score-based explanation
-            if score > 0.9:
-                explanation.append("Perfect match with comprehensive industry and content alignment")
-            elif score > 0.8:
+            # Add score-based explanation with updated ranges
+            if score > 0.75:
                 explanation.append("Excellent match with high relevance across all dimensions")
-            elif score > 0.6:
+            elif score > 0.65:
                 explanation.append("Strong match with good alignment to content and industry")
-            elif score > 0.4:
+            elif score > 0.50:
                 explanation.append("Good match with moderate relevance indicators")
-            elif score > 0.2:
+            elif score > 0.35:
                 explanation.append("Moderate match with some relevant connections")
+            elif score > 0.20:
+                explanation.append("Weak match with limited relevance")
             else:
-                explanation.append("Limited match with minimal relevance detected")
+                explanation.append("Poor match with minimal relevance detected")
             
             # Add specific matching details
             if outlet_id in self._outlet_embeddings:
-                outlet_text = self._outlet_texts[outlet_id]
-                
                 # Industry matching details
-                industry_score = self._calculate_industry_relevance_advanced(industry, outlet_id)
+                industry_score = self._calculate_industry_relevance(industry, outlet_id)
                 if industry_score > 0.3:
                     explanation.append(f"Industry alignment: {round(industry_score * 100)}%")
                 
                 # Content matching details
-                content_score = self._calculate_content_relevance_advanced(abstract, outlet_id)
+                content_score = self._calculate_content_relevance(abstract, outlet_id)
                 if content_score > 0.3:
                     explanation.append(f"Content relevance: {round(content_score * 100)}%")
                 
                 # Topic matching details
-                topic_score = self._calculate_topic_similarity_advanced(query_text, outlet_id)
+                topic_score = self._calculate_topic_similarity(query_text, outlet_id)
                 if topic_score > 0.2:
                     explanation.append(f"Topic similarity: {round(topic_score * 100)}%")
-                
-                # Entity matching details
-                entity_score = self._calculate_entity_overlap_advanced(query_text, outlet_id)
-                if entity_score > 0.2:
-                    explanation.append(f"Entity overlap: {round(entity_score * 100)}%")
             
             # Add outlet characteristics
             if outlet.get('AI Partnered', ''):
@@ -835,7 +905,7 @@ class OutletMatcher:
             return explanation
             
         except Exception as e:
-            print(f"Error generating explanation: {e}")
+            print(f"❌ Error generating explanation: {e}")
             return ["Match analysis completed"]
 
     def _calculate_tfidf_similarity(self, text1: str, text2: str) -> float:
@@ -848,10 +918,10 @@ class OutletMatcher:
             tfidf_matrix = self._vectorizer.fit_transform(texts)
             similarity_matrix = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])
             similarity = similarity_matrix[0][0]
-            # Ensure we return a Python float, not numpy float
+            
             return float(similarity)
         except Exception as e:
-            print(f"Error in TF-IDF similarity: {e}")
+            print(f"❌ Error in TF-IDF similarity: {e}")
             return 0.0
 
     def _clean_text(self, text: str) -> str:
@@ -881,7 +951,7 @@ class OutletMatcher:
             response = self.supabase.table("outlets").select("*").execute()
             return response.data if response.data else []
         except Exception as e:
-            print(f"Error fetching outlets: {str(e)}")
+            print(f"❌ Error fetching outlets: {str(e)}")
             return []
 
    
