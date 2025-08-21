@@ -731,6 +731,7 @@ class OutletMatcher:
                 boosted_overlap = base_overlap
             
             # Penalize non-cybersecurity outlets
+            outlet_lower = outlet_text.lower()
             if any(non_cyber in outlet_lower for non_cyber in ['healthcare', 'cloud computing', 'tech', 'it news', 'business', 'marketing']):
                 boosted_overlap = boosted_overlap * 0.5  # 50% penalty for non-cybersecurity focus
             
