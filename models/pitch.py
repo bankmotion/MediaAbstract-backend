@@ -16,9 +16,9 @@ class Pitch:
         self.plan_type = plan_type
         self.matcher = OutletMatcher(supabase)
 
-    def find_matching_outlets(self) -> List[Dict]:
-        """Find matching outlets for the pitch using semantic analysis."""
-        return self.matcher.find_matches(self.abstract, self.industry)
+    def find_matching_outlets(self, debug_mode: bool = False) -> List[Dict]:
+        """Find matching outlets for the pitch using semantic analysis with optional debug mode."""
+        return self.matcher.find_matches(self.abstract, self.industry, debug_mode=debug_mode)
 
     def analyze_user_input(self) -> Dict:
         """Analyze user input to extract topics and themes."""
@@ -109,13 +109,15 @@ class Pitch:
             response = supabase.table("pitches").insert(pitch_data).execute()
             
             if response.data:
-                return response.data[0]["id"]  # Return the ID of the inserted pitch
-            return None
-        
+                pitch_id = response.data[0].get("id")
+                print(f"✅ Pitch inserted successfully with ID: {pitch_id}")
+                return pitch_id
+            else:
+                print("❌ No data returned from pitch insertion")
+                return None
+                
         except Exception as e:
-            print(f"Detailed error inserting pitch: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ Error inserting pitch: {str(e)}")
             return None
         
     
