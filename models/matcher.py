@@ -244,6 +244,12 @@ class OutletMatcher:
         if any(term in outlet_name or term in audience or term in keywords for term in ['fintech', 'finance', 'banking', 'payment', 'payments', 'investment', 'financial', 'bank', 'trading', 'wealth', 'insurance']):
             return 'fintech'
         
+        # STRICT renewable energy detection (must come before fintech to prevent overlap)
+        if any(term in outlet_name for term in ['renewable energy world', 'environment+energy leader', 'clean energy', 'green tech', 'factor this!', 'solar', 'wind', 'renewable', 'clean technica', 'treehugger', 'ecowatch', 'mother earth news', 'greenbiz']):
+            return 'renewable_energy'
+        if any(term in outlet_name or term in audience or term in keywords for term in ['renewable', 'energy', 'sustainability', 'clean', 'green', 'solar', 'wind', 'climate', 'environmental', 'eco', 'carbon']):
+            return 'renewable_energy'
+        
         # STRICT education detection
         if any(term in outlet_name for term in ['education week', 'edtech', 'campus', 'school', 'university', 'college']):
             return 'education'
@@ -429,6 +435,22 @@ class OutletMatcher:
                     cybersecurity_keywords = ['security', 'cyber', 'hacker', 'threat', 'breach', 'vulnerability', 'malware', 'phishing', 'ransomware', 'defense', 'protection', 'magazine', 'computer', 'news', 'week', 'boulevard', 'defense', 'infosecurity', 'infosec']
                     if not any(keyword in outlet_lower for keyword in cybersecurity_keywords):
                         print(f"   ❌ EXCLUDED: {outlet_name} - No cybersecurity keywords in name")
+                        excluded_count += 1
+                        continue
+                
+                # ADDITIONAL CHECK: For fintech, exclude renewable energy/climate outlets
+                if target_vertical == 'fintech':
+                    renewable_keywords = ['renewable', 'energy', 'sustainability', 'clean', 'green', 'solar', 'wind', 'climate', 'environmental', 'eco', 'carbon', 'factor this!', 'clean technica', 'treehugger', 'ecowatch', 'mother earth news', 'greenbiz']
+                    outlet_lower = outlet_name.lower()
+                    if any(keyword in outlet_lower for keyword in renewable_keywords):
+                        print(f"   ❌ EXCLUDED: {outlet_name} - Renewable energy outlet not suitable for fintech")
+                        excluded_count += 1
+                        continue
+                    
+                    # DOUBLE CHECK: Ensure outlet is actually fintech-focused
+                    fintech_keywords = ['banking', 'finance', 'fintech', 'payment', 'payments', 'investment', 'financial', 'bank', 'trading', 'wealth', 'insurance', 'business', 'enterprise', 'corporate']
+                    if not any(keyword in outlet_lower for keyword in fintech_keywords):
+                        print(f"   ❌ EXCLUDED: {outlet_name} - No fintech keywords in name")
                         excluded_count += 1
                         continue
                 
