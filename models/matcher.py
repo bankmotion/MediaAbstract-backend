@@ -137,6 +137,22 @@ class OutletMatcher:
         'marketing_advertising': [
             'AdAge', 'AdWeek', 'Marketing Week', 'Campaign', 'The Drum',
             'Marketing Land', 'Search Engine Land', 'Social Media Examiner'
+        ],
+        'general_politics': [
+            'The Hill', 'Politico', 'Roll Call', 'The Washington Times',
+            'Real Clear Politics', 'National Review', 'The American Conservative'
+        ],
+        'enterprise_it': [
+            'CIO', 'InformationWeek', 'TechTarget', 'ZDNet', 'Computerworld',
+            'Network World', 'eWeek', 'CRN', 'Channel Futures'
+        ],
+        'cloud_computing': [
+            'Cloud Computing News', 'Cloud Tech', 'The New Stack', 'Container Journal',
+            'Kubernetes.io', 'AWS News', 'Azure Blog', 'Google Cloud Blog'
+        ],
+        'health_it': [
+            'Healthcare IT News', 'Health Data Management', 'Healthcare Finance News',
+            'Fierce Healthcare', 'MedCity News', 'HealthLeaders'
         ]
     }
 
@@ -262,12 +278,6 @@ class OutletMatcher:
         if any(term in outlet_name or term in audience or term in keywords for term in ['healthcare', 'health', 'medical', 'patient', 'clinical', 'hospital']):
             return 'healthcare'
         
-        # STRICT renewable energy detection
-        if any(term in outlet_name for term in ['renewable energy world', 'environment+energy leader', 'clean energy', 'green tech']):
-            return 'renewable_energy'
-        if any(term in outlet_name or term in audience or term in keywords for term in ['renewable', 'energy', 'sustainability', 'clean', 'green', 'solar', 'wind']):
-            return 'renewable_energy'
-        
         # Tech outlets (but not cybersecurity/fintech specific)
         if any(term in outlet_name for term in ['wired', 'techcrunch', 'the verge', 'ars technica', 'engadget', 'gizmodo', 'mashable', 'venturebeat']):
             return 'consumer_tech'
@@ -282,6 +292,88 @@ class OutletMatcher:
         
         # Default fallback
         return 'general'
+
+    def _determine_outlet_type(self, outlet: Dict) -> str:
+        """Determine the specific outlet type for refined scoring logic."""
+        outlet_name = outlet.get('Outlet Name', '').lower()
+        
+        # Check for general politics outlets
+        if any(politics in outlet_name for politics in ['the hill', 'politico', 'roll call', 'washington times', 'real clear politics', 'national review', 'american conservative']):
+            return 'general_politics'
+        
+        # Check for enterprise IT outlets
+        if any(it_outlet in outlet_name for it_outlet in ['cio', 'informationweek', 'techtarget', 'zdnet', 'computerworld', 'network world', 'eweek', 'crn', 'channel futures']):
+            return 'enterprise_it'
+        
+        # Check for cloud computing outlets
+        if any(cloud in outlet_name for cloud in ['cloud computing news', 'cloud tech', 'new stack', 'container journal', 'kubernetes', 'aws', 'azure', 'google cloud']):
+            return 'cloud_computing'
+        
+        # Check for health IT outlets
+        if any(health in outlet_name for health in ['healthcare it news', 'health data management', 'healthcare finance news', 'fierce healthcare', 'medcity news', 'healthleaders']):
+            return 'health_it'
+        
+        # Default
+        return 'standard'
+
+    def _detect_policy_intent(self, abstract: str) -> bool:
+        """Detect if abstract contains policy/regulation intent."""
+        abstract_lower = abstract.lower()
+        
+        # Policy/regulation trigger terms
+        policy_terms = [
+            'policy', 'regulation', 'congress', 'doe', 'epa', 'grants', 'bills', 
+            'mandates', 'legislation', 'law', 'act', 'rule', 'guidance', 'compliance',
+            'government', 'federal', 'state', 'local', 'agency', 'department',
+            'oversight', 'enforcement', 'audit', 'certification', 'standards'
+        ]
+        
+        # Check if any policy terms are present
+        has_policy_intent = any(term in abstract_lower for term in policy_terms)
+        
+        print(f"   🏛️ Policy intent detection: {'YES' if has_policy_intent else 'NO'}")
+        if has_policy_intent:
+            found_terms = [term for term in policy_terms if term in abstract_lower]
+            print(f"      Found policy terms: {found_terms}")
+        
+        return has_policy_intent
+
+    def _should_include_adjacent_outlet(self, abstract: str, outlet_type: str) -> bool:
+        """Determine if adjacent IT/Health outlets should be included for cybersecurity."""
+        abstract_lower = abstract.lower()
+        
+        # Cloud/Enterprise IT terms that justify inclusion
+        cloud_it_terms = [
+            'cloud', 'kubernetes', 'k8s', 'iam', 'saas', 'devops', 'container',
+            'microservices', 'api', 'aws', 'azure', 'gcp', 'hybrid cloud',
+            'multi-cloud', 'edge computing', 'serverless', 'infrastructure'
+        ]
+        
+        # Health IT terms that justify inclusion
+        health_it_terms = [
+            'hipaa', 'ehr', 'phi', 'healthcare', 'medical', 'patient data',
+            'clinical', 'telemedicine', 'health tech', 'digital health',
+            'medical device', 'healthcare security', 'patient privacy'
+        ]
+        
+        # Check if abstract contains relevant terms for the outlet type
+        if outlet_type == 'cloud_computing' or outlet_type == 'enterprise_it':
+            has_relevant_terms = any(term in abstract_lower for term in cloud_it_terms)
+            print(f"   ☁️ Cloud/IT relevance check: {'YES' if has_relevant_terms else 'NO'}")
+            if has_relevant_terms:
+                found_terms = [term for term in cloud_it_terms if term in abstract_lower]
+                print(f"      Found cloud/IT terms: {found_terms}")
+            return has_relevant_terms
+        
+        elif outlet_type == 'health_it':
+            has_relevant_terms = any(term in abstract_lower for term in health_it_terms)
+            print(f"   🏥 Health IT relevance check: {'YES' if has_relevant_terms else 'NO'}")
+            if has_relevant_terms:
+                found_terms = [term for term in health_it_terms if term in abstract_lower]
+                print(f"      Found health IT terms: {found_terms}")
+            return has_relevant_terms
+        
+        return False
 
     def _parse_semicolon_field(self, field_value: str) -> List[str]:
         """Parse semicolon-separated field values into clean arrays."""
@@ -386,7 +478,7 @@ class OutletMatcher:
         print(f"   No match found, using fallback: 'general'")
         return 'general'
 
-    def _apply_hard_vertical_filter(self, outlets: List[Dict], target_vertical: str) -> List[Dict]:
+    def _apply_hard_vertical_filter(self, outlets: List[Dict], target_vertical: str, abstract: str = "") -> List[Dict]:
         """Apply EXTREMELY STRICT vertical filter - only exact vertical matches."""
         if target_vertical == 'general':
             return outlets
@@ -454,6 +546,23 @@ class OutletMatcher:
                         excluded_count += 1
                         continue
                 
+                # ADDITIONAL CHECK: For cybersecurity, handle adjacent IT/Health outlets
+                if target_vertical == 'cybersecurity':
+                    outlet_type = self._determine_outlet_type(outlet)
+                    
+                    # Check if this is an adjacent outlet that needs special handling
+                    if outlet_type in ['enterprise_it', 'cloud_computing', 'health_it']:
+                        # Only include if abstract contains relevant terms
+                        if not self._should_include_adjacent_outlet(abstract, outlet_type):
+                            print(f"   ❌ EXCLUDED: {outlet_name} - Adjacent {outlet_type} outlet without relevant terms")
+                            excluded_count += 1
+                            continue
+                        else:
+                            print(f"   ⚠️ INCLUDED with penalty: {outlet_name} - Adjacent {outlet_type} outlet with relevant terms")
+                            # Mark for penalty application later
+                            outlet['_adjacent_outlet'] = True
+                            outlet['_outlet_type'] = outlet_type
+                
                 filtered_outlets.append(outlet)
                 print(f"   ✅ INCLUDED: {outlet_name} - Vertical: {outlet_vertical}")
             else:
@@ -477,7 +586,7 @@ class OutletMatcher:
         
         return filtered_outlets
 
-    def _compute_v2_match_components(self, abstract: str, industry: str, outlet_id: str) -> Dict[str, float]:
+    def _compute_v2_match_components(self, abstract: str, industry: str, outlet_id: str, outlet_data: Dict = None) -> Dict[str, float]:
         """Compute match components using v2 scoring weights with realistic scoring."""
         try:
             # Get outlet data
@@ -587,7 +696,28 @@ class OutletMatcher:
                 total_score = total_score * 1.20  # 20% boost for general outlets
                 print(f"   📰 General outlet boost applied: {total_score:.3f}")
             
-            # Penalize non-cybersecurity outlets that slipped through
+            # Apply Milestone 6 refinements
+            
+            # 1. General politics penalty (unless policy intent)
+            outlet_type = outlet_data.get('_outlet_type') if outlet_data else None
+            if not outlet_type and outlet_data:
+                outlet_type = self._determine_outlet_type(outlet_data)
+            
+            if outlet_type == 'general_politics':
+                policy_intent = self._detect_policy_intent(abstract)
+                if not policy_intent:
+                    total_score = total_score * 0.85  # -15% penalty for general politics without policy intent
+                    print(f"   🏛️ General politics penalty applied: {total_score:.3f}")
+                else:
+                    total_score = total_score * 1.05  # +5% boost for general politics with policy intent
+                    print(f"   🏛️ General politics boost applied: {total_score:.3f}")
+            
+            # 2. Adjacent outlet penalty for cybersecurity
+            if outlet_data and outlet_data.get('_adjacent_outlet', False):
+                total_score = total_score * 0.80  # -20% penalty for adjacent outlets
+                print(f"   ⚠️ Adjacent outlet penalty applied: {total_score:.3f}")
+            
+            # 3. Penalize non-cybersecurity outlets that slipped through
             if any(non_cyber in outlet_name_lower for non_cyber in ['healthcare', 'cloud computing', 'tech', 'it news', 'business', 'marketing']):
                 total_score = total_score * 0.6  # 40% penalty for non-cybersecurity focus
                 print(f"   ⚠️ Non-cybersecurity penalty applied: {total_score:.3f}")
@@ -877,7 +1007,7 @@ class OutletMatcher:
             target_vertical = self._get_target_vertical(industry)
             print(f"🎯 Target vertical: {target_vertical}")
             
-            eligible_outlets = self._apply_hard_vertical_filter(all_outlets, target_vertical)
+            eligible_outlets = self._apply_hard_vertical_filter(all_outlets, target_vertical, abstract)
             
             if not eligible_outlets:
                 print("❌ No outlets found after vertical filtering")
@@ -900,7 +1030,7 @@ class OutletMatcher:
                     continue
                 
                 # Compute v2 match components
-                components = self._compute_v2_match_components(abstract, industry, outlet_id)
+                components = self._compute_v2_match_components(abstract, industry, outlet_id, outlet)
                 
                 print(f"   📊 {outlet_name}: Topic={components['topic_similarity']:.3f}, Keywords={components['keyword_overlap']:.3f}, Total={components['total_score']:.3f}")
                 
