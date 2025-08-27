@@ -34,7 +34,8 @@ class OutletMatcher:
     HEALTHCARE_ALLOWLIST = [
         "Modern Healthcare", "Healthcare IT News", "Fierce Healthcare", "MedTech Dive",
         "Becker's Hospital Review", "HIMSS Media", "Healthcare Innovation", 
-        "Healthcare Design", "STAT News", "HealthLeaders", "MedCity News"
+        "Healthcare Design", "STAT News", "HealthLeaders", "MedCity News",
+        "Healthcare Dive", "Health Data Management", "Healthcare Finance News"
     ]
     
     POLICY_TERMS = [
@@ -202,6 +203,69 @@ class OutletMatcher:
             'Healthcare IT News', 'Health Data Management', 'Healthcare Finance News',
             'Fierce Healthcare', 'MedCity News', 'HealthLeaders'
         ]
+    }
+
+    # Fintech Hard Gate Configuration (JSON ruleset implementation)
+    FINTECH_HARD_GATE = {
+        "audience": "Finance & Fintech Leaders",
+        "version": "1.0",
+        "hard_gate": {
+            "must_match_any": [
+                {"field": "topics", "values": [
+                    "finance", "fintech", "banking", "payments", "lending", "insurance",
+                    "capital markets", "wealth management", "regtech", "compliance",
+                    "financial regulation", "real-time payments", "embedded finance",
+                    "bank tech", "risk management", "fraud", "AML", "KYC", "open banking",
+                    "CBDC", "digital assets", "treasury", "accounts payable", "B2B payments"
+                ]},
+                {"field": "keywords", "values": [
+                    "FedNow", "ISO 20022", "instant payments", "card networks",
+                    "interchange", "chargebacks", "PCI DSS", "SOX", "Basel", "MiCA",
+                    "PSD2", "PSD3", "open finance", "core banking", "finops",
+                    "payment rails", "acquirer", "issuer", "card present", "card not present"
+                ]}
+            ],
+            "min_relevance_score": 0.62
+        },
+        "allow": {
+            "outlets_exact": [
+                "Financial Times", "The Wall Street Journal", "Bloomberg",
+                "American Banker", "Payments Dive", "PYMNTS", "The Economist",
+                "Fortune", "Business Insider", "TechCrunch", "VentureBeat",
+                "Banking Dive", "Finextra", "The Banker", "Reuters"
+            ],
+            "sections_contains": [
+                "Finance", "Markets", "Banking", "Fintech", "Money",
+                "Payments", "Economy", "Tech:Fintech", "Business:Finance"
+            ]
+        },
+        "deny": {
+            "outlets_exact": [
+                "Adweek", "AdAge", "Supply Chain Dive", "Construction Dive",
+                "The Boston Globe", "The Washington Post", "USA Today", "Narratively",
+                "Trellis (Formerly GreenBiz)", "GreenBiz", "Mother Jones", "The Hill"
+            ],
+            "sections_contains": [
+                "Lifestyle", "Opinion (general)", "Sports", "Entertainment",
+                "Regional/Metro", "Marketing", "Advertising", "Construction",
+                "Supply Chain", "Environment/Sustainability (non-finance)"
+            ],
+            "keywords": [
+                "home improvement", "recipes", "travel", "celebrity", "DIY", "parenting",
+                "fashion", "gaming (non-finance)", "real estate (consumer lifestyle)"
+            ]
+        },
+        "boosts": [
+            {"when": {"topics_any": ["payments", "real-time payments", "FedNow", "ISO 20022"]}, "score_delta": 0.06},
+            {"when": {"topics_any": ["regtech", "compliance", "AML", "KYC", "Basel", "SOX"]}, "score_delta": 0.05},
+            {"when": {"outlet_exact_any": ["American Banker", "Payments Dive", "Finextra", "Banking Dive"]}, "score_delta": 0.08}
+        ],
+        "demotes": [
+            {"when": {"outlet_exact_any": ["AdAge", "Adweek", "Supply Chain Dive", "Construction Dive"]}, "score_delta": -0.25},
+            {"when": {"sections_any": ["Marketing", "Advertising", "Regional/Metro"]}, "score_delta": -0.18},
+            {"when": {"keywords_any": ["sustainability", "climate", "green"]}, "score_delta": -0.12}
+        ],
+        "page_cap": 20
     }
 
     def __init__(self, supabase_client: Client):
@@ -570,47 +634,182 @@ class OutletMatcher:
         return 'general'
 
     def _apply_hard_vertical_filter(self, outlets: List[Dict], target_vertical: str, abstract: str = "") -> List[Dict]:
-        """Apply POST-SCORE filtering - score all candidates first, then apply filters/penalties."""
+        """Apply HARD FILTERING - remove irrelevant outlets completely before scoring."""
         if target_vertical == 'general':
             return outlets
         
-        print(f"🔒 Applying POST-SCORE filtering for '{target_vertical}'")
-        print(f"   Strategy: Score all candidates first, then apply filters/penalties after ranking")
+        print(f"🔒 Applying HARD FILTERING for '{target_vertical}'")
+        print(f"   Strategy: REMOVE irrelevant outlets completely, keep only relevant ones")
         
-        # For healthcare, we want to be MORE PERMISSIVE in initial filtering
-        # but apply strict penalties to irrelevant outlets
+        # For healthcare, we want to be SMART in filtering - not too aggressive
         if target_vertical == 'healthcare':
-            print(f"   🏥 Healthcare: Including all outlets for scoring, will apply penalties post-score")
-            # Mark outlets for post-score processing
+            print(f"   🏥 Healthcare: Applying SMART filtering - keep relevant outlets, remove only irrelevant ones")
+            
+            # CRITICAL: Define filter lists for healthcare - be more selective
+            completely_irrelevant = [
+                # Known completely irrelevant outlets (remove these)
+                'trellis', 'greenbiz', 'narratively', 'smashing magazine', 'techradar', 'infoq', 'techdirt', 
+                'inman', 'adweek', 'construction dive', 'retail touchpoints', 'search engine land', 'seo',
+                
+                # General business (remove these)
+                'bloomberg', 'fortune', 'wall street journal', 'wsj', 'cnbc', 'reuters',
+                
+                # Tech outlets (remove these)
+                'venturebeat', 'wired', 'the verge', 'ars technica', 'techcrunch', 'cio dive', 'new stack', 
+                'built in', 'inc', 'mother jones', 'informationweek', 'dzone', 'tech talks', 'supply chain dive', 
+                'ai business', 'cloud native now', 'harvard business review', 'lifehack', 'the guardian', 
+                'american banker', 'fintech magazine', 'sd times',
+                
+                # General news (remove these)
+                'boston globe', 'usa today', 'washington post', 'general news', 'time', 'the atlantic',
+                
+                # Marketing/advertising (remove these)
+                'martech', 'marketing', 'advertising', 'hubspot', 'adage', 'adweek',
+                
+                # Lifestyle/wellness (remove these unless abstract contains wellness terms)
+                'lifehack', 'lifestyle', 'wellness', 'fitness', 'yoga', 'nutrition', 'psychology today',
+                'mindbodygreen', 'wellness mama', 'prevention', 'shape',
+                
+                # Fintech (remove these)
+                'pymnts', 'finextra', 'banking', 'finance', 'payments',
+                
+                # Software/development (remove these)
+                'software', 'development', 'programming', 'coding', 'github', 'stack overflow',
+                
+                # Other completely irrelevant categories
+                'construction', 'retail', 'supply chain', 'cms', 'content management', 'search engine',
+                'sem', 'social media', 'digital marketing', 'ecommerce', 'startup', 'entrepreneur'
+            ]
+            
+            # CRITICAL: Apply SMART filtering - remove only completely irrelevant outlets
+            filtered_outlets = []
+            removed_count = 0
+            
             for outlet in outlets:
                 outlet_name = outlet.get('Outlet Name', 'Unknown')
                 outlet_lower = outlet_name.lower()
                 
-                # Mark healthcare trade outlets for boost
+                # CHECK: Is this outlet completely irrelevant to healthcare?
+                is_irrelevant = False
+                for irrelevant_term in completely_irrelevant:
+                    if irrelevant_term in outlet_lower:
+                        print(f"   🚫 HARD FILTERED OUT: {outlet_name} (contains '{irrelevant_term}')")
+                        is_irrelevant = True
+                        removed_count += 1
+                        break
+                
+                if is_irrelevant:
+                    continue  # Skip this outlet completely
+                
+                # CHECK: Is this outlet in our healthcare allowlist?
                 if outlet_name in self.HEALTHCARE_ALLOWLIST:
                     outlet['_healthcare_trade'] = True
                     outlet['_allowlist_boost'] = 0.25
-                    print(f"   ✅ Healthcare trade marked: {outlet_name} (+0.25 boost)")
+                    print(f"   ✅ Healthcare trade outlet: {outlet_name} (+0.25 boost)")
+                    filtered_outlets.append(outlet)
+                    continue
                 
-                # Mark consumer/wellness outlets for penalty check
-                elif any(wellness in outlet_lower for wellness in ['psychology today', 'lifehack', 'mindbodygreen', 'wellness mama', 'prevention', 'shape', 'fitness', 'yoga', 'nutrition', 'lifestyle']):
-                    outlet['_consumer_wellness'] = True
-                    outlet['_wellness_penalty'] = -0.20  # Default penalty
-                    print(f"   ⚠️ Consumer wellness marked: {outlet_name} (-0.20 penalty)")
+                # CHECK: Does the outlet name contain specific healthcare outlet names?
+                healthcare_outlet_names = [
+                    'medcity', 'beckers', 'himss', 'fierce', 'modern healthcare', 'healthleaders',
+                    'stat news', 'healthcare weekly', 'healthcare business', 'healthcare technology',
+                    'healthcare management', 'healthcare leadership', 'healthcare strategy',
+                    'healthcare operations', 'healthcare efficiency', 'healthcare transformation',
+                    'healthcare data', 'healthcare analytics', 'healthcare ai', 'healthcare automation',
+                    'healthcare platform', 'healthcare solution', 'healthcare service'
+                ]
                 
-                # Mark clearly irrelevant outlets for heavy penalty
-                elif any(irrelevant in outlet_lower for irrelevant in ['techradar', 'infoq', 'smashing magazine', 'techdirt', 'inman', 'adweek', 'construction dive', 'retail touchpoints', 'search engine', 'seo', 'marketing', 'advertising', 'software', 'development', 'construction', 'retail']):
-                    outlet['_irrelevant_outlet'] = True
-                    outlet['_irrelevant_penalty'] = -0.40  # Heavy penalty
-                    print(f"   ❌ Irrelevant outlet marked: {outlet_name} (-0.40 penalty)")
+                if any(health_name in outlet_lower for health_name in healthcare_outlet_names):
+                    outlet['_healthcare_trade'] = True
+                    outlet['_allowlist_boost'] = 0.25
+                    print(f"   ✅ Healthcare outlet detected by name: {outlet_name} (+0.25 boost)")
+                    filtered_outlets.append(outlet)
+                    continue
                 
-                # Mark tech outlets for moderate penalty
-                elif any(tech in outlet_lower for tech in ['tech', 'technology', 'software', 'development', 'programming', 'coding']):
-                    outlet['_tech_outlet'] = True
-                    outlet['_tech_penalty'] = -0.15  # Moderate penalty
-                    print(f"   💻 Tech outlet marked: {outlet_name} (-0.15 penalty)")
+                # CHECK: Does this outlet contain healthcare-related terms?
+                healthcare_terms = [
+                    # Core healthcare terms
+                    'healthcare', 'health', 'medical', 'hospital', 'patient', 'clinical', 
+                    'physician', 'doctor', 'nurse', 'pharmacy', 'biotech', 'medtech', 'telemedicine',
+                    'ehr', 'emr', 'hipaa', 'healthcare it', 'health it', 'digital health', 
+                    'medical device', 'healthcare finance', 'healthcare innovation', 'healthcare design', 
+                    'healthcare dive', 'health data management',
+                    
+                    # Additional healthcare-related terms
+                    'medcity', 'beckers', 'himss', 'fierce', 'modern healthcare', 'healthleaders',
+                    'stat news', 'healthcare weekly', 'healthcare business', 'healthcare technology',
+                    'healthcare management', 'healthcare leadership', 'healthcare strategy',
+                    'healthcare operations', 'healthcare efficiency', 'healthcare transformation',
+                    'healthcare data', 'healthcare analytics', 'healthcare ai', 'healthcare automation',
+                    'healthcare platform', 'healthcare solution', 'healthcare service'
+                ]
+                
+                has_healthcare_focus = any(health_term in outlet_lower for health_term in healthcare_terms)
+                
+                if has_healthcare_focus:
+                    print(f"   ✅ Healthcare-focused outlet: {outlet_name}")
+                    filtered_outlets.append(outlet)
+                else:
+                    # CHECK: Does this outlet have business/tech focus that could be relevant to healthcare?
+                    business_tech_terms = ['business', 'enterprise', 'technology', 'tech', 'digital', 'innovation', 
+                                         'management', 'leadership', 'strategy', 'operations', 'efficiency', 'transformation',
+                                         'data', 'analytics', 'ai', 'artificial intelligence', 'machine learning',
+                                         'automation', 'cloud', 'saas', 'platform', 'solution', 'service']
+                    
+                    has_business_tech_focus = any(term in outlet_lower for term in business_tech_terms)
+                    
+                    if has_business_tech_focus:
+                        # ADDITIONAL CHECK: Is this outlet too generic/irrelevant for healthcare?
+                        too_generic = [
+                            'techtalks', 'techtarget', 'cloud computing', 'cio dive', 'informationweek',
+                            'zdnet', 'computerworld', 'network world', 'eweek', 'crn', 'channel futures',
+                            'techcrunch', 'venturebeat', 'wired', 'the verge', 'ars technica', 'engadget',
+                            'gizmodo', 'mashable', 'the next web', 'recode', 'tech', 'technology'
+                        ]
+                        
+                        if any(generic in outlet_lower for generic in too_generic):
+                            print(f"   🚫 HARD FILTERED OUT: {outlet_name} (too generic/irrelevant for healthcare)")
+                            removed_count += 1
+                            continue
+                        
+                        # This could be relevant to healthcare business/tech - keep it but mark for lower scoring
+                        outlet['_business_tech_focus'] = True
+                        outlet['_business_tech_penalty'] = -0.15  # Small penalty for business/tech focus
+                        print(f"   ⚠️ Business/tech outlet (potentially relevant): {outlet_name} (-0.15 penalty)")
+                        filtered_outlets.append(outlet)
+                    else:
+                        # This outlet has no healthcare or business/tech focus - remove it
+                        print(f"   🚫 HARD FILTERED OUT: {outlet_name} (no healthcare or business/tech focus)")
+                        removed_count += 1
+                        continue
             
-            return outlets  # Return all outlets for scoring
+            print(f"   🏥 Healthcare SMART filtering results:")
+            print(f"      Outlets before: {len(outlets)}")
+            print(f"      Outlets after: {len(filtered_outlets)}")
+            print(f"      Removed: {removed_count}")
+            
+            # CRITICAL: Allow more outlets for healthcare (15-20 instead of just 8)
+            if len(filtered_outlets) > 20:
+                print(f"   🎯 Limiting results from {len(filtered_outlets)} to 20 most relevant outlets")
+                # Prioritize healthcare trade outlets
+                healthcare_outlets = [o for o in filtered_outlets if o.get('_healthcare_trade')]
+                other_healthcare = [o for o in filtered_outlets if not o.get('_healthcare_trade')]
+                
+                # Take all healthcare trade outlets + top others up to 20 total
+                filtered_outlets = healthcare_outlets + other_healthcare[:20-len(healthcare_outlets)]
+                print(f"   🎯 Final result: {len(filtered_outlets)} outlets")
+            
+            # CRITICAL: If still no outlets, return empty list (don't show irrelevant ones)
+            if len(filtered_outlets) == 0:
+                print(f"   ⚠️ No healthcare outlets found - returning empty list")
+                return []
+            
+            return filtered_outlets
+        
+        # For fintech, apply the hard gate system
+        elif target_vertical == 'fintech':
+            print(f"   💰 Fintech: Applying HARD GATE system based on JSON ruleset")
+            return self._apply_fintech_hard_gate(outlets, abstract)
         
         # For other verticals, keep existing logic
         filtered_outlets = []
@@ -620,7 +819,6 @@ class OutletMatcher:
         # Define related verticals that are acceptable
         related_verticals = {
             'cybersecurity': ['cybersecurity', 'consumer_tech'],
-            'fintech': ['fintech', 'business_general'],
             'education': ['education', 'consumer_tech'],
             'renewable_energy': ['renewable_energy', 'consumer_tech'],
             'consumer_tech': ['consumer_tech', 'business_general']
@@ -641,14 +839,6 @@ class OutletMatcher:
             
             # Apply vertical filtering for non-healthcare
             if outlet_vertical in acceptable_verticals:
-                # Keep existing logic for cybersecurity and fintech
-                if target_vertical == 'cybersecurity':
-                    # ... existing cybersecurity logic ...
-                    pass
-                elif target_vertical == 'fintech':
-                    # ... existing fintech logic ...
-                    pass
-                
                 filtered_outlets.append(outlet)
                 print(f"   ✅ INCLUDED: {outlet_name} - Vertical: {outlet_vertical}")
             else:
@@ -847,31 +1037,72 @@ class OutletMatcher:
                 
                 print(f"   🎯 Final healthcare score after penalties/boosts: {total_score:.3f}")
             
-            # 7. Fintech trade boost for fintech pitches
+            # 7. Fintech hard gate scoring (JSON ruleset implementation)
             if target_vertical == 'fintech':
-                # Light trade boost for PYMNTS/Finextra/Banking Dive (client request)
-                premium_trade_outlets = ['pymnts', 'finextra', 'banking dive']
-                if any(trade in outlet_name_lower for trade in premium_trade_outlets):
-                    total_score = total_score * 1.08  # +8% light boost for premium fintech trade
-                    print(f"   💰 Premium fintech trade boost applied: {total_score:.3f}")
+                # Apply boosts from JSON ruleset
+                if outlet_data and outlet_data.get('_fintech_allowed'):
+                    boost = outlet_data.get('_allowed_boost', 0.10)
+                    total_score += boost
+                    print(f"   💰 Fintech allowed outlet boost applied: +{boost:.3f} → {total_score:.3f}")
                 
-                # Standard trade boost for other fintech outlets
-                standard_trade_outlets = ['payments dive', 'american banker']
-                if any(trade in outlet_name_lower for trade in standard_trade_outlets):
-                    total_score = total_score * 1.05  # +5% boost for standard fintech trade
-                    print(f"   💰 Standard fintech trade boost applied: {total_score:.3f}")
+                if outlet_data and outlet_data.get('_fintech_section_allowed'):
+                    boost = outlet_data.get('_section_boost', 0.05)
+                    total_score += boost
+                    print(f"   💰 Fintech section allowed boost applied: +{boost:.3f} → {total_score:.3f}")
                 
-                # Additional fintech outlet boosts
-                fintech_core_outlets = ['financial times', 'bloomberg', 'wall street journal', 'cnbc', 'reuters', 'fortune', 'forbes']
-                if any(core in outlet_name_lower for core in fintech_core_outlets):
-                    total_score = total_score * 1.10  # +10% boost for core fintech outlets
-                    print(f"   💰 Fintech core boost applied: {total_score:.3f}")
+                # Apply topic-specific boosts from JSON ruleset
+                abstract_lower = abstract.lower()
+                for boost_rule in self.FINTECH_HARD_GATE['boosts']:
+                    if boost_rule['when'].get('topics_any'):
+                        for topic in boost_rule['when']['topics_any']:
+                            if topic in abstract_lower:
+                                boost = boost_rule['score_delta']
+                                total_score += boost
+                                print(f"   💰 Fintech topic boost applied: +{boost:.3f} → {total_score:.3f}")
+                                break
                 
-                # Tech outlet boost for fintech
-                tech_outlets = ['techcrunch', 'venturebeat', 'wired', 'the verge', 'ars technica']
-                if any(tech in outlet_name_lower for tech in tech_outlets):
-                    total_score = total_score * 1.08  # +8% boost for tech outlets
-                    print(f"   💰 Tech outlet boost applied: {total_score:.3f}")
+                # Apply outlet-specific boosts from JSON ruleset
+                for boost_rule in self.FINTECH_HARD_GATE['boosts']:
+                    if boost_rule['when'].get('outlet_exact_any'):
+                        for outlet_name_exact in boost_rule['when']['outlet_exact_any']:
+                            if outlet_name_exact.lower() in outlet_name_lower:
+                                boost = boost_rule['score_delta']
+                                total_score += boost
+                                print(f"   💰 Fintech outlet boost applied: +{boost:.3f} → {total_score:.3f}")
+                                break
+                
+                # Apply demotes from JSON ruleset
+                for demote_rule in self.FINTECH_HARD_GATE['demotes']:
+                    if demote_rule['when'].get('outlet_exact_any'):
+                        for outlet_name_exact in demote_rule['when']['outlet_exact_any']:
+                            if outlet_name_exact.lower() in outlet_name_lower:
+                                demote = demote_rule['score_delta']
+                                total_score += demote
+                                print(f"   💰 Fintech outlet demote applied: {demote:+.3f} → {total_score:.3f}")
+                                break
+                
+                # Apply section demotes from JSON ruleset
+                if outlet_data and outlet_data.get('Section Name'):
+                    section_name = outlet_data.get('Section Name', '').lower()
+                    for demote_rule in self.FINTECH_HARD_GATE['demotes']:
+                        if demote_rule['when'].get('sections_any'):
+                            for section in demote_rule['when']['sections_any']:
+                                if section.lower() in section_name:
+                                    demote = demote_rule['score_delta']
+                                    total_score += demote
+                                    print(f"   💰 Fintech section demote applied: {demote:+.3f} → {total_score:.3f}")
+                                    break
+                
+                # Apply keyword demotes from JSON ruleset
+                outlet_text = f"{outlet_name} {outlet_data.get('Keywords', '') if outlet_data else ''}".lower()
+                for demote_rule in self.FINTECH_HARD_GATE['demotes']:
+                    if demote_rule['when'].get('keywords_any'):
+                        for keyword in demote_rule['when']['keywords_any']:
+                            if keyword in outlet_text:
+                                demote = demote_rule['score_delta']
+                                total_score += demote
+                                print(f"   💰 Fintech keyword demote applied: {demote:+.3f} → {total_score:.3f}")
+                                break
             
             # 8. Healthcare trade boost for healthcare pitches - REMOVED (now handled in section 6)
             # This was causing duplicate boosts
@@ -1346,9 +1577,15 @@ class OutletMatcher:
                 print(f"   📊 {outlet_name}: Topic={components['topic_similarity']:.3f}, Keywords={components['keyword_overlap']:.3f}, Total={components['total_score']:.3f}")
                 print(f"   🔍 Raw components: {components}")
                 
-                # Apply thresholds
-                topic_ok = components['topic_similarity'] >= self.TOPIC_SIMILARITY_THRESHOLD
-                total_ok = components['total_score'] >= self.TOTAL_SCORE_THRESHOLD
+                # Apply thresholds (use JSON ruleset threshold for fintech)
+                if target_vertical == 'fintech':
+                    min_relevance = self.FINTECH_HARD_GATE['hard_gate']['min_relevance_score']
+                    topic_ok = components['topic_similarity'] >= 0.05  # Lower topic threshold for fintech
+                    total_ok = components['total_score'] >= min_relevance  # Use JSON ruleset threshold
+                    print(f"   💰 Fintech thresholds: Topic >= 0.05, Total >= {min_relevance:.2f}")
+                else:
+                    topic_ok = components['topic_similarity'] >= self.TOPIC_SIMILARITY_THRESHOLD
+                    total_ok = components['total_score'] >= self.TOTAL_SCORE_THRESHOLD
                 
                 if topic_ok and total_ok:
                     scoring_stats['passed_thresholds'] += 1
@@ -1369,152 +1606,11 @@ class OutletMatcher:
             print(f"   Passed thresholds: {scoring_stats['passed_thresholds']}")
             print(f"   Failed thresholds: {scoring_stats['failed_thresholds']}")
             
-            # If no outlets passed thresholds, apply fallback scoring
+            # If no outlets passed thresholds, return empty list (don't show irrelevant ones)
             if not scored_rows:
-                print("⚠️ No outlets passed scoring thresholds - applying fallback scoring")
-                print("   This suggests the scoring algorithm is too restrictive")
-                
-                # Fallback: Score all eligible outlets with relaxed criteria
-                for outlet in eligible_outlets:
-                    outlet_id = outlet.get('id', outlet.get('Outlet Name', ''))
-                    outlet_name = outlet.get('Outlet Name', 'Unknown')
-                    
-                    if outlet_id not in self._outlet_texts:
-                        continue
-                    
-                    # Use enhanced fallback scoring with differentiation
-                    outlet_name = outlet.get('Outlet Name', 'Unknown')
-                    outlet_name_lower = outlet_name.lower()
-                    
-                    # Apply outlet-specific scoring for fallback
-                    if target_vertical == 'fintech':
-                        # Fintech-specific fallback scoring with varied ranges and better categorization
-                        # Check for premium fintech trade outlets (PYMNTS, Finextra, Banking Dive)
-                        if any(premium in outlet_name_lower for premium in ['pymnts', 'finextra', 'banking dive', 'bankingdive', 'banking-dive']):
-                            fallback_score = 0.87 + (hash(outlet_id) % 6) * 0.01
-                        # Check for core fintech outlets (FT, Bloomberg, WSJ)
-                        elif any(core in outlet_name_lower for core in ['financial times', 'bloomberg', 'wall street journal', 'wsj']):
-                            fallback_score = 0.79 + (hash(outlet_id) % 4) * 0.01
-                        # Check for fintech trade outlets (Payments Dive, American Banker)
-                        elif any(fintech in outlet_name_lower for fintech in ['payments dive', 'paymentsdive', 'payments-dive', 'american banker']):
-                            fallback_score = 0.75 + (hash(outlet_id) % 4) * 0.01
-                        # Check for tech outlets (TechCrunch, VentureBeat)
-                        elif any(tech in outlet_name_lower for tech in ['techcrunch', 'venturebeat', 'venture beat']):
-                            fallback_score = 0.71 + (hash(outlet_id) % 4) * 0.01
-                        # Check for business outlets (Fortune, Forbes, CNBC)
-                        elif any(business in outlet_name_lower for business in ['fortune', 'forbes', 'cnbc']):
-                            fallback_score = 0.67 + (hash(outlet_id) % 4) * 0.01
-                        # Check for marketing outlets (AdAge, AdWeek)
-                        elif any(marketing in outlet_name_lower for marketing in ['adage', 'adweek', 'marketing']):
-                            fallback_score = 0.63 + (hash(outlet_id) % 4) * 0.01
-                        # Check for general news outlets (Boston Globe, local news)
-                        elif any(news in outlet_name_lower for news in ['boston globe', 'general news', 'local']):
-                            fallback_score = 0.59 + (hash(outlet_id) % 4) * 0.01
-                        # Check for specialized outlets (Supply Chain, CMS, content)
-                        elif any(specialized in outlet_name_lower for specialized in ['supply chain', 'cms', 'content', 'informationweek', 'techtarget']):
-                            fallback_score = 0.55 + (hash(outlet_id) % 4) * 0.01
-                        # Check for environmental/sustainability outlets (should be penalized for fintech)
-                        elif any(env in outlet_name_lower for env in ['greenbiz', 'trellis', 'sustainability', 'environmental', 'clean']):
-                            fallback_score = 0.45 + (hash(outlet_id) % 4) * 0.01
-                        else:
-                            fallback_score = 0.51 + (hash(outlet_id) % 8) * 0.01
-                    
-                    elif target_vertical == 'healthcare':
-                        # Healthcare-specific fallback scoring with varied ranges
-                        # Check for premium healthcare trade outlets
-                        if any(premium in outlet_name_lower for premium in ['modern healthcare', 'healthcare it news', 'fierce healthcare', 'medcity news', 'healthleaders', 'beckers hospital review']):
-                            fallback_score = 0.87 + (hash(outlet_id) % 6) * 0.01
-                        # Check for core healthcare outlets
-                        elif any(core in outlet_name_lower for core in ['healthcare dive', 'health data management', 'healthcare finance news', 'himss media', 'healthcare innovation', 'healthcare design', 'stat news']):
-                            fallback_score = 0.79 + (hash(outlet_id) % 4) * 0.01
-                        # Check for health IT outlets
-                        elif any(health_it in outlet_name_lower for health_it in ['healthcare it', 'health it', 'medical device', 'digital health', 'telemedicine', 'ehr', 'emr', 'hipaa']):
-                            fallback_score = 0.75 + (hash(outlet_id) % 4) * 0.01
-                        # Check for medical/clinical outlets
-                        elif any(medical in outlet_name_lower for medical in ['medical', 'clinical', 'patient', 'hospital', 'physician', 'doctor', 'nurse']):
-                            fallback_score = 0.71 + (hash(outlet_id) % 4) * 0.01
-                        # Check for business outlets (should be penalized for healthcare)
-                        elif any(business in outlet_name_lower for business in ['fortune', 'forbes', 'cnbc', 'bloomberg', 'wall street journal']):
-                            fallback_score = 0.67 + (hash(outlet_id) % 4) * 0.01
-                            # Apply business penalty for healthcare
-                            fallback_score -= 0.30  # -30% penalty for business outlets in healthcare
-                            print(f"   💼 Business penalty applied: -0.30 → {fallback_score:.3f}")
-                        # Check for tech outlets (should be heavily penalized for healthcare)
-                        elif any(tech in outlet_name_lower for tech in ['techcrunch', 'venturebeat', 'wired', 'the verge', 'ars technica']):
-                            fallback_score = 0.63 + (hash(outlet_id) % 4) * 0.01
-                            # Apply tech penalty for healthcare
-                            fallback_score -= 0.35  # -35% penalty for tech outlets in healthcare
-                            print(f"   💻 Tech penalty applied: -0.35 → {fallback_score:.3f}")
-                        # Check for general news outlets (should be penalized for healthcare)
-                        elif any(news in outlet_name_lower for news in ['usa today', 'boston globe', 'general news', 'local']):
-                            fallback_score = 0.59 + (hash(outlet_id) % 4) * 0.01
-                            # Apply news penalty for healthcare
-                            fallback_score -= 0.25  # -25% penalty for general news in healthcare
-                            print(f"   📰 News penalty applied: -0.25 → {fallback_score:.3f}")
-                        # Check for specialized outlets (should be heavily penalized for healthcare)
-                        elif any(specialized in outlet_name_lower for specialized in ['search engine', 'seo', 'marketing', 'advertising', 'construction', 'retail', 'software', 'development']):
-                            fallback_score = 0.45 + (hash(outlet_id) % 4) * 0.01
-                            # Apply specialized penalty for healthcare
-                            fallback_score -= 0.40  # -40% penalty for specialized outlets in healthcare
-                            print(f"   🔧 Specialized penalty applied: -0.40 → {fallback_score:.3f}")
-                        else:
-                            fallback_score = 0.51 + (hash(outlet_id) % 8) * 0.01
-                            # Apply general penalty for healthcare
-                            fallback_score -= 0.20  # -20% penalty for general outlets in healthcare
-                            print(f"   📊 General penalty applied: -0.20 → {fallback_score:.3f}")
-                        
-                        # Apply post-score penalties for healthcare
-                        if any(irrelevant in outlet_name_lower for irrelevant in ['techradar', 'infoq', 'smashing magazine', 'techdirt', 'inman', 'adweek', 'construction dive', 'retail touchpoints', 'search engine', 'seo', 'marketing', 'advertising', 'software', 'development', 'construction', 'retail']):
-                            fallback_score -= 0.40  # Heavy penalty for irrelevant outlets
-                            print(f"   ❌ Irrelevant penalty applied: -0.40 → {fallback_score:.3f}")
-                        elif any(tech in outlet_name_lower for tech in ['tech', 'technology', 'software', 'development', 'programming', 'coding']):
-                            fallback_score -= 0.15  # Moderate penalty for tech outlets
-                            print(f"   💻 Tech penalty applied: -0.15 → {fallback_score:.3f}")
-                        
-                        # Apply healthcare allowlist boost
-                        if any(healthcare in outlet_name_lower for healthcare in ['modern healthcare', 'healthcare it news', 'fierce healthcare', 'medcity news', 'healthleaders', 'beckers hospital review', 'himss media']):
-                            fallback_score += 0.25  # +25% boost for healthcare trade outlets
-                            print(f"   🏥 Healthcare trade boost applied: +0.25 → {fallback_score:.3f}")
-                        
-                        # CRITICAL: Cap fallback scores to prevent <0% or >100%
-                        fallback_score = max(0.0, min(1.0, fallback_score))
-                        print(f"   🔄 Final fallback score (capped): {fallback_score:.3f}")
-                    else:
-                        # Cybersecurity and other verticals
-                        if 'securityweek' in outlet_name_lower or 'sc magazine' in outlet_name_lower:
-                            fallback_score = 0.88 + (hash(outlet_id) % 8) * 0.01
-                        elif 'security boulevard' in outlet_name_lower or 'cyber defense magazine' in outlet_name_lower:
-                            fallback_score = 0.78 + (hash(outlet_id) % 8) * 0.01
-                        elif 'the hacker news' in outlet_name_lower or 'infosecurity magazine' in outlet_name_lower:
-                            fallback_score = 0.72 + (hash(outlet_id) % 8) * 0.01
-                        elif 'cloud computing' in outlet_name_lower:
-                            fallback_score = 0.58 + (hash(outlet_id) % 8) * 0.01
-                        elif 'healthcare' in outlet_name_lower:
-                            fallback_score = 0.52 + (hash(outlet_id) % 8) * 0.01
-                        else:
-                            fallback_score = 0.65 + (hash(outlet_id) % 10) * 0.01
-                    
-                    # Create enhanced fallback components
-                    components = {
-                        'vertical_match': 1.0,
-                        'topic_similarity': 0.15,
-                        'keyword_overlap': 0.10,
-                        'ai_partnership': 0.5,
-                        'content_acceptance': 0.5,
-                        'total_score': fallback_score
-                    }
-                    
-                    scored_rows.append({
-                        'outlet': outlet,
-                        'outlet_id': outlet_id,
-                        'components': components,
-                        'total_score': fallback_score
-                    })
-                    print(f"   🔄 Enhanced Fallback: {outlet_name} - Score: {fallback_score:.3f}")
-                
-                if not scored_rows:
-                    print("❌ Even fallback scoring failed - no outlets available")
-                    return []
+                print("❌ No outlets passed scoring thresholds - returning empty list")
+                print("   This means the hard filter worked correctly - no irrelevant outlets should be shown")
+                return []
             
             # 3. SORT by total score descending
             scored_rows.sort(key=lambda r: r['total_score'], reverse=True)
@@ -1626,5 +1722,141 @@ class OutletMatcher:
         except Exception as e:
             print(f"❌ Error fetching outlets: {str(e)}")
             return []
+
+    def _apply_fintech_hard_gate(self, outlets: List[Dict], abstract: str) -> List[Dict]:
+        """Apply fintech hard gate system based on JSON ruleset."""
+        print(f"   💰 Applying Fintech Hard Gate System")
+        print(f"      Version: {self.FINTECH_HARD_GATE['version']}")
+        
+        # Step 1: Apply hard gate - outlets must match finance/fintech topics/keywords
+        hard_gate_outlets = []
+        hard_gate_failed = 0
+        
+        for outlet in outlets:
+            outlet_name = outlet.get('Outlet Name', 'Unknown')
+            outlet_lower = outlet_name.lower()
+            outlet_keywords = outlet.get('Keywords', '').lower()
+            outlet_audience = outlet.get('Audience', '').lower()
+            
+            # Check if outlet passes hard gate
+            passes_hard_gate = False
+            
+            # Check topics (from abstract and outlet content)
+            abstract_lower = abstract.lower()
+            for topic_values in self.FINTECH_HARD_GATE['hard_gate']['must_match_any']:
+                if topic_values['field'] == 'topics':
+                    for topic in topic_values['values']:
+                        if topic in abstract_lower or topic in outlet_lower or topic in outlet_keywords or topic in outlet_audience:
+                            passes_hard_gate = True
+                            print(f"      ✅ {outlet_name} passes hard gate via topic: {topic}")
+                            break
+                    if passes_hard_gate:
+                        break
+                elif topic_values['field'] == 'keywords':
+                    for keyword in topic_values['values']:
+                        if keyword in abstract_lower or keyword in outlet_lower or keyword in outlet_keywords or keyword in outlet_audience:
+                            passes_hard_gate = True
+                            print(f"      ✅ {outlet_name} passes hard gate via keyword: {keyword}")
+                            break
+                    if passes_hard_gate:
+                        break
+            
+            if passes_hard_gate:
+                hard_gate_outlets.append(outlet)
+            else:
+                hard_gate_failed += 1
+                print(f"      ❌ {outlet_name} FAILED hard gate - no finance/fintech topics/keywords")
+        
+        print(f"      Hard gate results: {len(hard_gate_outlets)} passed, {hard_gate_failed} failed")
+        
+        # Step 2: Apply allow/deny lists
+        final_outlets = []
+        denied_count = 0
+        
+        for outlet in hard_gate_outlets:
+            outlet_name = outlet.get('Outlet Name', 'Unknown')
+            outlet_lower = outlet_name.lower()
+            outlet_section = outlet.get('Section Name', '').lower()
+            
+            # Check deny list first (exact matches)
+            is_denied = False
+            for denied_outlet in self.FINTECH_HARD_GATE['deny']['outlets_exact']:
+                if outlet_name == denied_outlet:
+                    print(f"      🚫 {outlet_name} DENIED (exact match in deny list)")
+                    is_denied = True
+                    denied_count += 1
+                    break
+            
+            if is_denied:
+                continue
+            
+            # Check deny sections
+            for denied_section in self.FINTECH_HARD_GATE['deny']['sections_contains']:
+                if denied_section.lower() in outlet_section:
+                    print(f"      🚫 {outlet_name} DENIED (section: {outlet_section})")
+                    is_denied = True
+                    denied_count += 1
+                    break
+            
+            if is_denied:
+                continue
+            
+            # Check deny keywords
+            outlet_text = f"{outlet_name} {outlet.get('Keywords', '')} {outlet.get('Audience', '')}".lower()
+            for denied_keyword in self.FINTECH_HARD_GATE['deny']['keywords']:
+                if denied_keyword in outlet_text:
+                    print(f"      🚫 {outlet_name} DENIED (keyword: {denied_keyword})")
+                    is_denied = True
+                    denied_count += 1
+                    break
+            
+            if is_denied:
+                continue
+            
+            # Check allow list (exact matches get priority)
+            is_allowed = False
+            for allowed_outlet in self.FINTECH_HARD_GATE['allow']['outlets_exact']:
+                if outlet_name == allowed_outlet:
+                    outlet['_fintech_allowed'] = True
+                    outlet['_allowed_boost'] = 0.10  # +10% boost for allowed outlets
+                    print(f"      ✅ {outlet_name} ALLOWED (exact match in allow list) +0.10 boost")
+                    is_allowed = True
+                    break
+            
+            # Check allow sections
+            if not is_allowed:
+                for allowed_section in self.FINTECH_HARD_GATE['allow']['sections_contains']:
+                    if allowed_section.lower() in outlet_section:
+                        outlet['_fintech_section_allowed'] = True
+                        outlet['_section_boost'] = 0.05  # +5% boost for allowed sections
+                        print(f"      ✅ {outlet_name} ALLOWED (section: {outlet_section}) +0.05 boost")
+                        is_allowed = True
+                        break
+            
+            # If not explicitly allowed, still include if it passed hard gate
+            if not is_allowed:
+                print(f"      ⚠️ {outlet_name} included (passed hard gate but not in allow lists)")
+            
+            final_outlets.append(outlet)
+        
+        print(f"      Allow/deny results: {len(final_outlets)} included, {denied_count} denied")
+        
+        # Step 3: Apply page cap
+        if len(final_outlets) > self.FINTECH_HARD_GATE['page_cap']:
+            print(f"      🎯 Limiting results from {len(final_outlets)} to {self.FINTECH_HARD_GATE['page_cap']} outlets")
+            # Prioritize allowed outlets
+            allowed_outlets = [o for o in final_outlets if o.get('_fintech_allowed') or o.get('_fintech_section_allowed')]
+            other_outlets = [o for o in final_outlets if not (o.get('_fintech_allowed') or o.get('_fintech_section_allowed'))]
+            
+            final_outlets = allowed_outlets + other_outlets[:self.FINTECH_HARD_GATE['page_cap']-len(allowed_outlets)]
+            print(f"      🎯 Final result: {len(final_outlets)} outlets")
+        
+        print(f"   💰 Fintech Hard Gate Final Results:")
+        print(f"      Outlets before: {len(outlets)}")
+        print(f"      Outlets after: {len(final_outlets)}")
+        print(f"      Hard gate failed: {hard_gate_failed}")
+        print(f"      Denied: {denied_count}")
+        
+        return final_outlets
 
    
