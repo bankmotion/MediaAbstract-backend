@@ -15,6 +15,10 @@ class OutletMatcher:
     TOTAL_SCORE_THRESHOLD = 0.20       # Further lowered to ensure fintech outlets pass
     MIN_SCORE_THRESHOLD = 0.20         # Updated to match total threshold
     
+    # NEW: Stricter cutoff for pages 2+ to eliminate noise
+    PAGE_1_STRICT_THRESHOLD = 0.70    # Page 1: Allow 70%+ scores
+    PAGE_2_PLUS_STRICT_THRESHOLD = 0.70  # Pages 2+: Require 70%+ scores + category filtering
+    
     # Scoring weights per v2 specification
     VERTICAL_MATCH_WEIGHT = 0.55       # 55% - Vertical alignment
     TOPIC_SIMILARITY_WEIGHT = 0.25     # 25% - Topic similarity
@@ -708,7 +712,7 @@ class OutletMatcher:
                     print(f"   ✅ Healthcare trade outlet: {outlet_name} (+0.25 boost)")
                     filtered_outlets.append(outlet)
                     continue
-                
+
                 # CHECK: Does the outlet name contain specific healthcare outlet names?
                 healthcare_outlet_names = [
                     'medcity', 'beckers', 'himss', 'fierce', 'modern healthcare', 'healthleaders',
@@ -984,7 +988,7 @@ class OutletMatcher:
                 if not policy_intent:
                     total_score = total_score * (1 + self.GENERAL_POLITICS_PENALTY)  # -15% penalty
                     print(f"   🏛️ General politics penalty applied: {total_score:.3f}")
-                else:
+            else:
                     total_score = total_score * (1 + self.GENERAL_POLITICS_POLICY_BOOST)  # +5% boost
                     print(f"   🏛️ General politics boost applied: {total_score:.3f}")
             
@@ -1615,12 +1619,67 @@ class OutletMatcher:
             # 3. SORT by total score descending
             scored_rows.sort(key=lambda r: r['total_score'], reverse=True)
             
-            # 4. BUILD FINAL MATCHES with explain objects
+            # 4. APPLY NOISE FILTERING to remove irrelevant outlets
+            print(f"🚫 Applying noise filtering to {len(scored_rows)} scored outlets...")
+            filtered_rows = self._filter_noise_outlets(scored_rows, target_vertical)
+            
+            # 5. BUILD FINAL MATCHES with explain objects
             matches = []
-            for row in scored_rows[:limit]:
+            
+            # NEW: Implement strict page-based filtering
+            max_pages = 2  # Only show 2 pages maximum
+            max_outlets_per_page = 5
+            max_total_outlets = max_pages * max_outlets_per_page
+            
+            print(f"   🎯 STRICT PAGE FILTERING: Max {max_pages} pages, {max_total_outlets} total outlets")
+            
+            for i, row in enumerate(filtered_rows):
+                # Stop after max total outlets
+                if len(matches) >= max_total_outlets:
+                    print(f"   🚫 STOPPING: Reached maximum {max_total_outlets} outlets")
+                    break
+                
                 outlet = row['outlet']
                 components = row['components']
                 total_score = row['total_score']
+                
+                # Calculate page number
+                page_number = (len(matches) // max_outlets_per_page) + 1
+                
+                # Page 1: Allow all outlets that passed noise filtering
+                if page_number == 1:
+                    print(f"   📄 Page 1: {outlet.get('Outlet Name', 'Unknown')} (score: {total_score:.3f})")
+                else:
+                    # Pages 2+: Apply MUCH stricter filtering
+                    strict_threshold = 0.75  # 75% minimum for pages 2+
+                    if total_score < strict_threshold:
+                        print(f"   🚫 Page {page_number}: {outlet.get('Outlet Name', 'Unknown')} filtered out (score {total_score:.3f} < {strict_threshold:.3f})")
+                        continue
+                    
+                    # Additional category check for pages 2+
+                    outlet_name = outlet.get('Outlet Name', 'Unknown').lower()
+                    if target_vertical == 'cybersecurity':
+                        # Only allow cybersecurity-focused outlets on page 2
+                        cybersecurity_terms = ['security', 'cyber', 'hack', 'threat', 'breach', 'vulnerability', 'malware', 'phishing', 'ransomware', 'infosec', 'ciso']
+                        if not any(term in outlet_name for term in cybersecurity_terms):
+                            print(f"   🚫 Page {page_number}: {outlet.get('Outlet Name', 'Unknown')} filtered out (not cybersecurity-focused)")
+                            continue
+                    
+                    elif target_vertical == 'fintech':
+                        # Only allow finance-focused outlets on page 2
+                        finance_terms = ['finance', 'fintech', 'banking', 'payment', 'lending', 'insurance', 'capital', 'wealth', 'investment', 'trading']
+                        if not any(term in outlet_name for term in finance_terms):
+                            print(f"   🚫 Page {page_number}: {outlet.get('Outlet Name', 'Unknown')} filtered out (not finance-focused)")
+                            continue
+                    
+                    elif target_vertical == 'healthcare':
+                        # Only allow healthcare-focused outlets on page 2
+                        healthcare_terms = ['healthcare', 'health', 'medical', 'hospital', 'patient', 'clinical', 'physician', 'doctor', 'nurse', 'pharmacy', 'biotech', 'medtech']
+                        if not any(term in outlet_name for term in healthcare_terms):
+                            print(f"   🚫 Page {page_number}: {outlet.get('Outlet Name', 'Unknown')} filtered out (not healthcare-focused)")
+                            continue
+                    
+                    print(f"   📄 Page {page_number}: {outlet.get('Outlet Name', 'Unknown')} (score: {total_score:.3f}) - PASSED strict filtering")
                 
                 # Generate explain object
                 explain = self._generate_explain_object(components, outlet, target_vertical)
@@ -1651,6 +1710,8 @@ class OutletMatcher:
                     }
                 
                 matches.append(result)
+            
+            print(f"   🎯 FINAL RESULT: {len(matches)} outlets across {max_pages} pages maximum")
             
             print(f"\n📊 V2 MATCHING RESULTS:")
             print(f"   Target vertical: {target_vertical}")
@@ -1858,5 +1919,112 @@ class OutletMatcher:
         print(f"      Denied: {denied_count}")
         
         return final_outlets
+
+    def _filter_noise_outlets(self, outlets: List[Dict], target_vertical: str) -> List[Dict]:
+        """Filter out noise outlets based on user feedback and category relevance."""
+        print(f"   🚫 Applying noise filtering for {target_vertical}")
+        
+        # Define noise outlets per category (from user feedback)
+        noise_outlets = {
+            'fintech': [
+                'AdAge', 'Adweek', 'Supply Chain Dive', 'Construction Dive', 
+                'The Boston Globe', 'The Washington Post', 'USA Today', 'Narratively',
+                'Trellis (Formerly GreenBiz)', 'GreenBiz', 'Mother Jones', 'The Hill',
+                'Retail TouchPoints', 'Search Engine Land', 'Search Engine Journal',
+                'MarTech Series', 'ITPro', 'PR Daily'
+            ],
+            'cybersecurity': [
+                'MakeUseOf', 'TechDirt', 'Retail TouchPoints', 'Adweek', 'AdAge',
+                'Supply Chain Dive', 'Construction Dive', 'Search Engine Land',
+                'Search Engine Journal', 'MarTech Series', 'ITPro', 'PR Daily',
+                'USA Today', 'The Boston Globe', 'The Washington Post'
+            ],
+            'healthcare': [
+                'Business Insider', 'PR Daily', 'Adweek', 'AdAge', 'Supply Chain Dive',
+                'Construction Dive', 'Retail TouchPoints', 'Search Engine Land',
+                'Search Engine Journal', 'MarTech Series', 'ITPro', 'USA Today',
+                'The Boston Globe', 'The Washington Post', 'Narratively'
+            ]
+        }
+        
+        # Get noise list for target vertical
+        noise_list = noise_outlets.get(target_vertical, [])
+        if not noise_list:
+            print(f"      No noise filtering defined for {target_vertical}")
+            return outlets
+        
+        print(f"      Noise list for {target_vertical}: {noise_list}")
+        
+        # Filter out noise outlets
+        filtered_outlets = []
+        noise_removed = 0
+        
+        for outlet_row in outlets:
+            # Handle both direct outlets and scored rows
+            if isinstance(outlet_row, dict) and 'outlet' in outlet_row:
+                outlet = outlet_row['outlet']
+                outlet_name = outlet.get('Outlet Name', 'Unknown')
+            else:
+                outlet = outlet_row
+                outlet_name = outlet.get('Outlet Name', 'Unknown')
+            
+            print(f"      🔍 Checking outlet: '{outlet_name}'")
+            
+            # Check if outlet is in noise list (EXACT MATCH)
+            is_noise = False
+            for noise_outlet in noise_list:
+                if noise_outlet.lower() == outlet_name.lower():
+                    is_noise = True
+                    print(f"      🚫 EXACT NOISE MATCH: '{outlet_name}' == '{noise_outlet}'")
+                    break
+            
+            if is_noise:
+                print(f"      🚫 NOISE FILTERED: {outlet_name}")
+                noise_removed += 1
+                continue
+            
+            # Check if outlet is in noise list (CONTAINS MATCH)
+            is_noise_contains = False
+            for noise_outlet in noise_list:
+                if noise_outlet.lower() in outlet_name.lower() or outlet_name.lower() in noise_outlet.lower():
+                    is_noise_contains = True
+                    print(f"      🚫 CONTAINS NOISE MATCH: '{outlet_name}' contains '{noise_outlet}'")
+                    break
+            
+            if is_noise_contains:
+                print(f"      🚫 NOISE FILTERED (contains): {outlet_name}")
+                noise_removed += 1
+                continue
+            
+            # Additional category-specific filtering (MORE AGGRESSIVE)
+            if target_vertical == 'fintech':
+                # Filter out non-finance outlets on pages 2+
+                irrelevant_terms = ['supply chain', 'construction', 'retail', 'marketing', 'advertising', 'search engine', 'seo', 'martech', 'pr daily', 'adweek', 'adage']
+                if any(irrelevant in outlet_name.lower() for irrelevant in irrelevant_terms):
+                    print(f"      🚫 CATEGORY FILTERED: {outlet_name} (not finance/fintech)")
+                    noise_removed += 1
+                    continue
+            
+            elif target_vertical == 'cybersecurity':
+                # Filter out non-security outlets on pages 2+
+                irrelevant_terms = ['retail', 'marketing', 'advertising', 'search engine', 'seo', 'martech', 'pr daily', 'supply chain', 'construction', 'adweek', 'adage', 'makeuseof', 'techdirt']
+                if any(irrelevant in outlet_name.lower() for irrelevant in irrelevant_terms):
+                    print(f"      🚫 CATEGORY FILTERED: {outlet_name} (not cybersecurity)")
+                    noise_removed += 1
+                    continue
+            
+            elif target_vertical == 'healthcare':
+                # Filter out non-healthcare outlets on pages 2+
+                irrelevant_terms = ['business insider', 'pr daily', 'marketing', 'advertising', 'search engine', 'seo', 'martech', 'supply chain', 'construction', 'retail', 'adweek', 'adage']
+                if any(irrelevant in outlet_name.lower() for irrelevant in irrelevant_terms):
+                    print(f"      🚫 CATEGORY FILTERED: {outlet_name} (not healthcare)")
+                    noise_removed += 1
+                    continue
+            
+            print(f"      ✅ KEPT: {outlet_name}")
+            filtered_outlets.append(outlet_row)
+        
+        print(f"      Noise filtering results: {len(outlets)} → {len(filtered_outlets)} ({noise_removed} removed)")
+        return filtered_outlets
 
    
