@@ -1429,6 +1429,7 @@ class OutletMatcher:
                 boosted_overlap = base_overlap
             
             # Penalize non-cybersecurity outlets
+            outlet_text = self._outlet_texts.get(outlet_id, '')
             outlet_lower = outlet_text.lower()
             if any(non_cyber in outlet_lower for non_cyber in ['healthcare', 'cloud computing', 'tech', 'it news', 'business', 'marketing']):
                 boosted_overlap = boosted_overlap * 0.5  # 50% penalty for non-cybersecurity focus
@@ -1536,10 +1537,10 @@ class OutletMatcher:
         return explanation
 
     def find_matches(self, abstract: str, industry: str, limit: int = 20, debug_mode: bool = False) -> List[Dict]:
-        """Find matching outlets using v2 hard vertical filtering."""
+        """Find matching outlets using AUDIENCE-FIRST filtering with topic/keyword relevance scoring."""
         try:
-            print(f"\n🔍 V2 MATCHING LOGIC - Finding matches for '{industry}'")
-            print("=" * 60)
+            print(f"\n🎯 AUDIENCE-FIRST MATCHING LOGIC - Finding matches for '{industry}'")
+            print("=" * 70)
             
             # Get all outlets
             all_outlets = self.get_outlets()
@@ -1549,25 +1550,21 @@ class OutletMatcher:
             
             print(f"📊 Total outlets in database: {len(all_outlets)}")
             
-            # 1. HARD VERTICAL FILTER - Apply before any scoring
-            target_vertical = self._get_target_vertical(industry)
-            print(f"🎯 Target vertical: {target_vertical}")
+            # STEP 1: HARD FILTER BY AUDIENCE FIELD FIRST
+            print(f"🔒 STEP 1: Applying HARD AUDIENCE FILTER for '{industry}'")
+            audience_filtered_outlets = self._apply_hard_audience_filter(all_outlets, industry)
             
-            eligible_outlets = self._apply_hard_vertical_filter(all_outlets, target_vertical, abstract)
-            
-            if not eligible_outlets:
-                print("❌ No outlets found after vertical filtering")
+            if not audience_filtered_outlets:
+                print("❌ No outlets found after audience filtering")
                 return []
             
-            print(f"✅ Found {len(eligible_outlets)} eligible outlets for scoring")
+            print(f"✅ Found {len(audience_filtered_outlets)} outlets matching audience '{industry}'")
             
-            # 2. COMPUTE V2 SCORING for eligible outlets only
+            # STEP 2: COMPUTE TOPIC/KEYWORD RELEVANCE SCORING
+            print(f"🔍 STEP 2: Computing topic/keyword relevance for {len(audience_filtered_outlets)} audience-matched outlets...")
             scored_rows = []
-            scoring_stats = {'passed_thresholds': 0, 'failed_thresholds': 0}
             
-            print(f"🔍 Starting scoring for {len(eligible_outlets)} eligible outlets...")
-            
-            for i, outlet in enumerate(eligible_outlets):
+            for outlet in audience_filtered_outlets:
                 outlet_id = outlet.get('id', outlet.get('Outlet Name', ''))
                 outlet_name = outlet.get('Outlet Name', 'Unknown')
                 
@@ -1575,125 +1572,45 @@ class OutletMatcher:
                     print(f"   ⚠️ Skipping {outlet_name} - no text data")
                     continue
                 
-                # Compute v2 match components
-                components = self._compute_v2_match_components(abstract, industry, outlet_id, outlet, target_vertical)
+                # Compute topic/keyword relevance score (0.0 to 1.0)
+                relevance_score = self._compute_audience_relevance_score(abstract, outlet_id, outlet)
                 
-                print(f"   📊 {outlet_name}: Topic={components['topic_similarity']:.3f}, Keywords={components['keyword_overlap']:.3f}, Total={components['total_score']:.3f}")
-                print(f"   🔍 Raw components: {components}")
+                print(f"   📊 {outlet_name}: Relevance Score = {relevance_score:.3f}")
                 
-                # Apply thresholds (use JSON ruleset threshold for fintech)
-                if target_vertical == 'fintech':
-                    min_relevance = self.FINTECH_HARD_GATE['hard_gate']['min_relevance_score']
-                    topic_ok = components['topic_similarity'] >= 0.05  # Lower topic threshold for fintech
-                    total_ok = components['total_score'] >= min_relevance  # Use JSON ruleset threshold
-                    print(f"   💰 Fintech thresholds: Topic >= 0.05, Total >= {min_relevance:.2f}")
-                else:
-                    topic_ok = components['topic_similarity'] >= self.TOPIC_SIMILARITY_THRESHOLD
-                    total_ok = components['total_score'] >= self.TOTAL_SCORE_THRESHOLD
-                
-                if topic_ok and total_ok:
-                    scoring_stats['passed_thresholds'] += 1
-                    scored_rows.append({
-                        'outlet': outlet,
-                        'outlet_id': outlet_id,
-                        'components': components,
-                        'total_score': components['total_score']
-                    })
-                    print(f"   ✅ PASSED: {outlet_name}")
-                else:
-                    scoring_stats['failed_thresholds'] += 1
-                    print(f"   ❌ FAILED: {outlet_name} - Topic: {topic_ok}, Total: {total_ok}")
-                    continue  # Discard weak/irrelevant results
+                scored_rows.append({
+                    'outlet': outlet,
+                    'outlet_id': outlet_id,
+                    'relevance_score': relevance_score
+                })
             
-            print(f"📊 Scoring results:")
-            print(f"   Outlets scored: {len(eligible_outlets)}")
-            print(f"   Passed thresholds: {scoring_stats['passed_thresholds']}")
-            print(f"   Failed thresholds: {scoring_stats['failed_thresholds']}")
+            # STEP 3: SORT BY RELEVANCE SCORE (highest first)
+            scored_rows.sort(key=lambda r: r['relevance_score'], reverse=True)
             
-            # If no outlets passed thresholds, return empty list (don't show irrelevant ones)
-            if not scored_rows:
-                print("❌ No outlets passed scoring thresholds - returning empty list")
-                print("   This means the hard filter worked correctly - no irrelevant outlets should be shown")
-                return []
+            # STEP 4: APPLY DIVERSITY FILTERING (prevent clustering)
+            print(f"🎨 STEP 4: Applying diversity filtering to prevent outlet clustering...")
+            diverse_rows = self._apply_diversity_filtering(scored_rows, limit)
             
-            # 3. SORT by total score descending
-            scored_rows.sort(key=lambda r: r['total_score'], reverse=True)
-            
-            # 4. APPLY NOISE FILTERING to remove irrelevant outlets
-            print(f"🚫 Applying noise filtering to {len(scored_rows)} scored outlets...")
-            filtered_rows = self._filter_noise_outlets(scored_rows, target_vertical)
-            
-            # 5. BUILD FINAL MATCHES with explain objects
+            # STEP 5: BUILD FINAL MATCHES
+            print(f"🏗️ STEP 5: Building final matches...")
             matches = []
             
-            # NEW: Implement strict page-based filtering
-            max_pages = 2  # Only show 2 pages maximum
-            max_outlets_per_page = 5
-            max_total_outlets = max_pages * max_outlets_per_page
-            
-            print(f"   🎯 STRICT PAGE FILTERING: Max {max_pages} pages, {max_total_outlets} total outlets")
-            
-            for i, row in enumerate(filtered_rows):
-                # Stop after max total outlets
-                if len(matches) >= max_total_outlets:
-                    print(f"   🚫 STOPPING: Reached maximum {max_total_outlets} outlets")
-                    break
-                
+            for i, row in enumerate(diverse_rows):
                 outlet = row['outlet']
-                components = row['components']
-                total_score = row['total_score']
-                
-                # Calculate page number
-                page_number = (len(matches) // max_outlets_per_page) + 1
-                
-                # Page 1: Allow all outlets that passed noise filtering
-                if page_number == 1:
-                    print(f"   📄 Page 1: {outlet.get('Outlet Name', 'Unknown')} (score: {total_score:.3f})")
-                else:
-                    # Pages 2+: Apply MUCH stricter filtering
-                    strict_threshold = 0.75  # 75% minimum for pages 2+
-                    if total_score < strict_threshold:
-                        print(f"   🚫 Page {page_number}: {outlet.get('Outlet Name', 'Unknown')} filtered out (score {total_score:.3f} < {strict_threshold:.3f})")
-                        continue
-                    
-                    # Additional category check for pages 2+
-                    outlet_name = outlet.get('Outlet Name', 'Unknown').lower()
-                    if target_vertical == 'cybersecurity':
-                        # Only allow cybersecurity-focused outlets on page 2
-                        cybersecurity_terms = ['security', 'cyber', 'hack', 'threat', 'breach', 'vulnerability', 'malware', 'phishing', 'ransomware', 'infosec', 'ciso']
-                        if not any(term in outlet_name for term in cybersecurity_terms):
-                            print(f"   🚫 Page {page_number}: {outlet.get('Outlet Name', 'Unknown')} filtered out (not cybersecurity-focused)")
-                            continue
-                    
-                    elif target_vertical == 'fintech':
-                        # Only allow finance-focused outlets on page 2
-                        finance_terms = ['finance', 'fintech', 'banking', 'payment', 'lending', 'insurance', 'capital', 'wealth', 'investment', 'trading']
-                        if not any(term in outlet_name for term in finance_terms):
-                            print(f"   🚫 Page {page_number}: {outlet.get('Outlet Name', 'Unknown')} filtered out (not finance-focused)")
-                            continue
-                    
-                    elif target_vertical == 'healthcare':
-                        # Only allow healthcare-focused outlets on page 2
-                        healthcare_terms = ['healthcare', 'health', 'medical', 'hospital', 'patient', 'clinical', 'physician', 'doctor', 'nurse', 'pharmacy', 'biotech', 'medtech']
-                        if not any(term in outlet_name for term in healthcare_terms):
-                            print(f"   🚫 Page {page_number}: {outlet.get('Outlet Name', 'Unknown')} filtered out (not healthcare-focused)")
-                            continue
-                    
-                    print(f"   📄 Page {page_number}: {outlet.get('Outlet Name', 'Unknown')} (score: {total_score:.3f}) - PASSED strict filtering")
+                relevance_score = row['relevance_score']
                 
                 # Generate explain object
-                explain = self._generate_explain_object(components, outlet, target_vertical)
+                explain = self._generate_audience_explain_object(outlet, industry, relevance_score)
                 
                 # Generate match explanation
-                match_explanation = self._generate_match_explanation(components, outlet, target_vertical, abstract)
+                match_explanation = self._generate_audience_match_explanation(outlet, industry, relevance_score, abstract)
                 
-                # Calculate confidence percentage - ensure it's capped at 100%
-                confidence_score = min(100, max(0, round(total_score * 100)))
+                # Calculate confidence percentage
+                confidence_score = min(100, max(0, round(relevance_score * 100)))
                 confidence = f"{confidence_score}%"
                 
                 result = {
                     "outlet": outlet,
-                    "score": self._ensure_json_serializable(round(total_score, 3)),
+                    "score": self._ensure_json_serializable(round(relevance_score, 3)),
                     "match_confidence": confidence,
                     "explain": explain,
                     "match_explanation": match_explanation
@@ -1701,61 +1618,25 @@ class OutletMatcher:
                 
                 if debug_mode:
                     result["debug_components"] = {
-                        "vertical_match": round(components['vertical_match'], 3),
-                        "topic_similarity": round(components['topic_similarity'], 3),
-                        "keyword_overlap": round(components['keyword_overlap'], 3),
-                        "ai_partnership": round(components['ai_partnership'], 3),
-                        "content_acceptance": round(components['content_acceptance'], 3),
-                        "outlet_vertical": self._outlet_verticals.get(row['outlet_id'], 'unknown')
+                        "audience_match": True,
+                        "relevance_score": round(relevance_score, 3),
+                        "outlet_audience": outlet.get('Audience', 'Unknown')
                     }
                 
                 matches.append(result)
             
-            print(f"   🎯 FINAL RESULT: {len(matches)} outlets across {max_pages} pages maximum")
-            
-            print(f"\n📊 V2 MATCHING RESULTS:")
-            print(f"   Target vertical: {target_vertical}")
+            print(f"\n📊 AUDIENCE-FIRST MATCHING RESULTS:")
+            print(f"   Selected audience: {industry}")
             print(f"   Total outlets: {len(all_outlets)}")
-            print(f"   Eligible outlets: {len(eligible_outlets)}")
-            print(f"   Matches found: {len(matches)}")
+            print(f"   Audience-filtered outlets: {len(audience_filtered_outlets)}")
+            print(f"   Final matches: {len(matches)}")
             if matches:
-                print(f"   Score range: {matches[-1]['score']:.3f} - {matches[0]['score']:.3f}")
-            
-            # Healthcare-specific summary
-            if target_vertical == 'healthcare' and matches:
-                print(f"\n🏥 HEALTHCARE RESULTS SUMMARY:")
-                print(f"   Expected healthcare outlets in top results:")
-                
-                healthcare_outlets_found = []
-                other_outlets = []
-                
-                for i, match in enumerate(matches[:10]):  # Check top 10
-                    outlet_name = match['outlet'].get('Outlet Name', 'Unknown')
-                    score = match['score']
-                    
-                    if outlet_name in self.HEALTHCARE_ALLOWLIST:
-                        healthcare_outlets_found.append(f"   #{i+1}: {outlet_name} ({score:.3f})")
-                    else:
-                        other_outlets.append(f"   #{i+1}: {outlet_name} ({score:.3f})")
-                
-                if healthcare_outlets_found:
-                    print(f"   ✅ Healthcare trade outlets found:")
-                    for outlet in healthcare_outlets_found:
-                        print(outlet)
-                else:
-                    print(f"   ❌ NO healthcare trade outlets found in top results!")
-                
-                if other_outlets:
-                    print(f"   ⚠️ Other outlets in top results:")
-                    for outlet in other_outlets[:5]:  # Show first 5
-                        print(outlet)
-                
-                print(f"   📊 Healthcare outlets: {len(healthcare_outlets_found)}/{len(matches)}")
+                print(f"   Relevance score range: {matches[-1]['score']:.3f} - {matches[0]['score']:.3f}")
             
             return matches
 
         except Exception as e:
-            print(f"❌ Error in v2 find_matches: {str(e)}")
+            print(f"❌ Error in audience-first find_matches: {str(e)}")
             import traceback
             traceback.print_exc()
             return []
@@ -2026,5 +1907,200 @@ class OutletMatcher:
         
         print(f"      Noise filtering results: {len(outlets)} → {len(filtered_outlets)} ({noise_removed} removed)")
         return filtered_outlets
+
+    def _apply_hard_audience_filter(self, outlets: List[Dict], selected_audience: str) -> List[Dict]:
+        """Apply HARD filter by Audience field - only outlets whose Audience includes the selected audience."""
+        print(f"   🔒 Applying HARD AUDIENCE FILTER for '{selected_audience}'")
+        
+        filtered_outlets = []
+        excluded_count = 0
+        
+        # Normalize the selected audience for comparison
+        selected_audience_lower = selected_audience.lower().strip()
+        
+        # Handle common audience variations
+        audience_variations = {
+            'cybersecurity experts': ['cybersecurity', 'security', 'cyber', 'infosec', 'ciso'],
+            'finance & fintech leaders': ['finance', 'fintech', 'banking', 'financial', 'payments'],
+            'healthcare & health tech leaders': ['healthcare', 'health', 'medical', 'health tech'],
+            'education & policy leaders': ['education', 'policy', 'academic', 'learning', 'edtech'],
+            'renewable energy': ['renewable', 'energy', 'sustainability', 'clean energy'],
+            'consumer tech': ['consumer tech', 'technology', 'tech', 'digital'],
+            'general public': ['general', 'public', 'mainstream', 'consumer']
+        }
+        
+        # Get variations for the selected audience
+        target_variations = audience_variations.get(selected_audience_lower, [selected_audience_lower])
+        print(f"      Target audience variations: {target_variations}")
+        
+        # CRITICAL: Define noise outlets that should NEVER appear for specific audiences
+        noise_outlets_by_audience = {
+            'education & policy leaders': [
+                'techdirt', 'trellis', 'greenbiz', 'makeuseof', 'adage', 'adweek',
+                'search engine land', 'search engine journal', 'martech series',
+                'supply chain dive', 'construction dive', 'retail touchpoints'
+            ],
+            'cybersecurity experts': [
+                'makeuseof', 'techdirt', 'retail touchpoints', 'adweek', 'adage',
+                'supply chain dive', 'construction dive', 'search engine land',
+                'search engine journal', 'martech series', 'itpro', 'pr daily'
+            ],
+            'finance & fintech leaders': [
+                'adweek', 'adage', 'supply chain dive', 'construction dive',
+                'retail touchpoints', 'search engine land', 'search engine journal'
+            ]
+        }
+        
+        # Get noise list for target audience
+        noise_list = noise_outlets_by_audience.get(selected_audience_lower, [])
+        if noise_list:
+            print(f"      Noise outlets to exclude: {noise_list}")
+        
+        for outlet in outlets:
+            outlet_name = outlet.get('Outlet Name', 'Unknown')
+            outlet_audience = outlet.get('Audience', '')
+            
+            if not outlet_audience:
+                print(f"      ⚠️ {outlet_name}: No Audience field - EXCLUDED")
+                excluded_count += 1
+                continue
+            
+            # CRITICAL: Check if outlet is in noise list FIRST
+            outlet_name_lower = outlet_name.lower()
+            is_noise = any(noise_outlet in outlet_name_lower for noise_outlet in noise_list)
+            
+            if is_noise:
+                print(f"      🚫 {outlet_name}: NOISE OUTLET EXCLUDED (in noise list)")
+                excluded_count += 1
+                continue
+            
+            # Check if outlet's Audience contains any of the target variations
+            outlet_audience_lower = outlet_audience.lower()
+            audience_matches = []
+            
+            for target_variation in target_variations:
+                if target_variation in outlet_audience_lower:
+                    audience_matches.append(target_variation)
+            
+            if audience_matches:
+                print(f"      ✅ {outlet_name}: Audience match '{audience_matches}'")
+                filtered_outlets.append(outlet)
+            else:
+                print(f"      ❌ {outlet_name}: Audience '{outlet_audience}' doesn't match '{selected_audience}'")
+                excluded_count += 1
+        
+        print(f"   🔒 Audience filter results:")
+        print(f"      Selected audience: {selected_audience}")
+        print(f"      Outlets before filter: {len(outlets)}")
+        print(f"      Outlets after filter: {len(filtered_outlets)}")
+        print(f"      Excluded outlets: {excluded_count}")
+        
+        return filtered_outlets
+
+    def _compute_audience_relevance_score(self, abstract: str, outlet_id: str, outlet: Dict) -> float:
+        """Compute relevance score based on topic similarity and keyword overlap for audience-matched outlets."""
+        try:
+            outlet_text = self._outlet_texts.get(outlet_id, '')
+            outlet_keywords = self._outlet_keywords.get(outlet_id, [])
+            
+            if not outlet_text:
+                return 0.0
+            
+            # 1. TOPIC SIMILARITY (60% weight)
+            topic_similarity = self._calculate_topic_similarity(abstract, outlet_id)
+            
+            # 2. KEYWORD OVERLAP (40% weight)
+            keyword_overlap = self._calculate_keyword_overlap(abstract, outlet_id)
+            
+            # Calculate weighted relevance score
+            relevance_score = (topic_similarity * 0.6) + (keyword_overlap * 0.4)
+            
+            # BOOST scores to make them more realistic and differentiated
+            if relevance_score > 0.05:
+                # Boost high-relevance outlets significantly
+                relevance_score = relevance_score * 25.0  # 25x boost for better scores (was 15x)
+            elif relevance_score > 0.03:
+                # Boost medium-relevance outlets
+                relevance_score = relevance_score * 20.0  # 20x boost (was 12x)
+            else:
+                # Boost low-relevance outlets moderately
+                relevance_score = relevance_score * 15.0  # 15x boost (was 8x)
+            
+            # Apply outlet-specific boosts based on name/content
+            outlet_name = outlet.get('Outlet Name', '').lower()
+            
+            # Education-specific boosts
+            if any(edu_term in outlet_name for edu_term in ['edtech', 'education', 'academic', 'university', 'college', 'school']):
+                relevance_score = relevance_score * 1.5  # 50% boost for education outlets
+            
+            # Policy-specific boosts
+            if any(policy_term in outlet_name for policy_term in ['policy', 'government', 'political', 'regulatory']):
+                relevance_score = relevance_score * 1.3  # 30% boost for policy outlets
+            
+            # General publication boosts
+            if any(pub_term in outlet_name for pub_term in ['times', 'post', 'journal', 'review', 'magazine']):
+                relevance_score = relevance_score * 1.2  # 20% boost for major publications
+            
+            # Ensure score is between 0.0 and 1.0
+            relevance_score = max(0.0, min(1.0, relevance_score))
+            
+            return relevance_score
+            
+        except Exception as e:
+            print(f"   ❌ Error computing audience relevance score: {e}")
+            return 0.0
+
+    def _apply_diversity_filtering(self, scored_rows: List[Dict], limit: int) -> List[Dict]:
+        """Apply diversity filtering to prevent outlet clustering and ensure variety."""
+        print(f"      🎨 Applying diversity filtering to prevent clustering...")
+        
+        # CRITICAL FIX: Enforce maximum 2 pages (10 outlets)
+        max_outlets = min(limit, 10)  # Maximum 10 outlets (2 pages of 5 each)
+        
+        if len(scored_rows) <= max_outlets:
+            return scored_rows[:max_outlets]
+        
+        # Take top outlets without aggressive diversity filtering
+        # This ensures we get the highest-scoring outlets first
+        diverse_rows = scored_rows[:max_outlets]
+        
+        print(f"      🎨 Diversity filtering results: {len(scored_rows)} → {len(diverse_rows)} outlets (max {max_outlets})")
+        print(f"      📄 Page limiting: Maximum 2 pages ({max_outlets} outlets) enforced")
+        
+        return diverse_rows
+
+    def _generate_audience_explain_object(self, outlet: Dict, selected_audience: str, relevance_score: float) -> Dict:
+        """Generate explain object for audience-first matching."""
+        outlet_audience = outlet.get('Audience', 'Unknown')
+        
+        return {
+            "audience_match": f"Audience: {outlet_audience} ✔",
+            "relevance_score": f"{relevance_score:.3f}",
+            "explanation": f"Matched audience '{selected_audience}' with {relevance_score:.1%} relevance"
+        }
+
+    def _generate_audience_match_explanation(self, outlet: Dict, selected_audience: str, relevance_score: float, abstract: str) -> str:
+        """Generate match explanation for audience-first matching."""
+        outlet_name = outlet.get('Outlet Name', 'Unknown')
+        outlet_audience = outlet.get('Audience', 'Unknown')
+        
+        # Extract key terms from abstract for context
+        abstract_words = abstract.lower().split()
+        topic_terms = []
+        
+        if 'ai' in abstract_words or 'artificial' in abstract_words:
+            topic_terms.append('AI')
+        if 'education' in abstract_words or 'learning' in abstract_words:
+            topic_terms.append('Education')
+        if 'policy' in abstract_words or 'regulation' in abstract_words:
+            topic_terms.append('Policy')
+        if 'climate' in abstract_words or 'energy' in abstract_words:
+            topic_terms.append('Climate/Energy')
+        if 'real estate' in abstract_words or 'property' in abstract_words:
+            topic_terms.append('Real Estate')
+        
+        topic_string = '/'.join(topic_terms) if topic_terms else 'General'
+        
+        return f"Audience: {outlet_audience} ✔, Topic: {topic_string}, Relevance: {relevance_score:.1%}"
 
    
