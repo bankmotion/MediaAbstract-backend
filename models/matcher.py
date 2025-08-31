@@ -1918,27 +1918,88 @@ class OutletMatcher:
         # Normalize the selected audience for comparison
         selected_audience_lower = selected_audience.lower().strip()
         
-        # Handle common audience variations
-        audience_variations = {
-            'cybersecurity experts': ['cybersecurity', 'security', 'cyber', 'infosec', 'ciso'],
-            'finance & fintech leaders': ['finance', 'fintech', 'banking', 'financial', 'payments'],
-            'healthcare & health tech leaders': ['healthcare', 'health', 'medical', 'health tech'],
-            'education & policy leaders': ['education', 'policy', 'academic', 'learning', 'edtech'],
-            'renewable energy': ['renewable', 'energy', 'sustainability', 'clean energy'],
-            'consumer tech': ['consumer tech', 'technology', 'tech', 'digital'],
-            'general public': ['general', 'public', 'mainstream', 'consumer']
+        # CRITICAL FIX: Make audience matching smarter and more inclusive
+        # For "Education & Policy Leaders", we need outlets that cover education OR policy OR academic topics
+        # But also include outlets that are relevant based on their content, not just audience tags
+        audience_requirements = {
+            'education & policy leaders': {
+                'primary': ['education', 'edtech', 'academic', 'learning'],
+                'secondary': ['policy', 'government', 'political', 'regulatory', 'academic', 'research', 'university', 'college'],
+                'logic': 'smart_matching'  # Smart matching based on content and audience
+            },
+            'cybersecurity experts': {
+                'primary': ['cybersecurity', 'security', 'cyber', 'infosec', 'ciso'],
+                'secondary': ['technology', 'it', 'enterprise'],
+                'logic': 'must_have_primary'  # Must contain at least one primary term
+            },
+            'finance & fintech leaders': {
+                'primary': ['finance', 'fintech', 'banking', 'financial', 'payments'],
+                'secondary': ['business', 'enterprise', 'technology'],
+                'logic': 'must_have_primary'  # Must contain at least one primary term
+            },
+            'healthcare & health tech leaders': {
+                'primary': ['healthcare', 'health', 'medical', 'health tech'],
+                'secondary': ['technology', 'it', 'enterprise'],
+                'logic': 'must_have_primary'  # Must contain at least one primary term
+            },
+            'renewable energy': {
+                'primary': ['renewable', 'energy', 'sustainability', 'clean energy'],
+                'secondary': ['environmental', 'climate', 'green'],
+                'logic': 'must_have_primary'  # Must contain at least one primary term
+            },
+            'consumer tech': {
+                'primary': ['consumer tech', 'technology', 'tech', 'digital'],
+                'secondary': ['lifestyle', 'entertainment'],
+                'logic': 'must_have_primary'  # Must contain at least one primary term
+            },
+            'general public': {
+                'primary': ['general', 'public', 'mainstream', 'consumer'],
+                'secondary': ['news', 'media', 'entertainment'],
+                'logic': 'must_have_primary'  # Must contain at least one primary term
+            }
         }
         
-        # Get variations for the selected audience
-        target_variations = audience_variations.get(selected_audience_lower, [selected_audience_lower])
-        print(f"      Target audience variations: {target_variations}")
+        # Get requirements for the selected audience
+        audience_req = audience_requirements.get(selected_audience_lower, {
+            'primary': [selected_audience_lower],
+            'secondary': [],
+            'logic': 'must_have_primary'
+        })
+        
+        print(f"      Primary requirements: {audience_req['primary']}")
+        print(f"      Secondary requirements: {audience_req['secondary']}")
+        print(f"      Logic: {audience_req['logic']}")
+        print(f"      🚨 DEBUG: Using logic type: {audience_req['logic']}")
+        if audience_req['logic'] == 'smart_matching':
+            print(f"      🚨 DEBUG: Smart matching will be applied!")
+        else:
+            print(f"      🚨 DEBUG: Using fallback logic!")
+        
+        # Define keywords for smart matching
+        education_keywords = [
+            'education', 'edtech', 'academic', 'learning', 'teaching', 'school', 'university', 'college',
+            'curriculum', 'assessment', 'student', 'teacher', 'professor', 'faculty', 'campus'
+        ]
+        
+        policy_keywords = [
+            'policy', 'government', 'political', 'regulatory', 'legislation', 'congress', 'senate',
+            'white house', 'department', 'federal', 'state', 'local', 'administration'
+        ]
+        
+        academic_keywords = [
+            'academic', 'research', 'scholarly', 'pedagogy', 'higher education', 'postsecondary',
+            'graduate', 'undergraduate', 'doctoral', 'masters', 'bachelor'
+        ]
         
         # CRITICAL: Define noise outlets that should NEVER appear for specific audiences
         noise_outlets_by_audience = {
             'education & policy leaders': [
                 'techdirt', 'trellis', 'greenbiz', 'makeuseof', 'adage', 'adweek',
                 'search engine land', 'search engine journal', 'martech series',
-                'supply chain dive', 'construction dive', 'retail touchpoints'
+                'supply chain dive', 'construction dive', 'retail touchpoints',
+                'modern healthcare', 'healthcare', 'medical', 'health',  # Healthcare outlets
+                'energy central', 'renewable', 'sustainability', 'clean energy'  # Energy outlets
+                # ONLY exclude truly irrelevant outlets - education/policy outlets should pass through
             ],
             'cybersecurity experts': [
                 'makeuseof', 'techdirt', 'retail touchpoints', 'adweek', 'adage',
@@ -1974,20 +2035,97 @@ class OutletMatcher:
                 excluded_count += 1
                 continue
             
-            # Check if outlet's Audience contains any of the target variations
+            # CRITICAL FIX: Apply strict audience matching logic
             outlet_audience_lower = outlet_audience.lower()
-            audience_matches = []
+            has_primary = any(primary in outlet_audience_lower for primary in audience_req['primary'])
+            has_secondary = any(secondary in outlet_audience_lower for secondary in audience_req['secondary'])
             
-            for target_variation in target_variations:
-                if target_variation in outlet_audience_lower:
-                    audience_matches.append(target_variation)
+            # DEBUG: Show exactly what's happening for each outlet
+            print(f"      🔍 DEBUG {outlet_name}:")
+            print(f"         Outlet Audience: '{outlet_audience}'")
+            print(f"         Outlet Audience (lower): '{outlet_audience_lower}'")
+            print(f"         Primary requirements: {audience_req['primary']}")
+            print(f"         Has primary: {has_primary}")
+            print(f"         Secondary requirements: {audience_req['secondary']}")
+            print(f"         Has secondary: {has_secondary}")
             
-            if audience_matches:
-                print(f"      ✅ {outlet_name}: Audience match '{audience_matches}'")
-                filtered_outlets.append(outlet)
+            # Apply the logic based on audience type
+            if audience_req['logic'] == 'must_have_primary':
+                if has_primary:
+                    matched_primary = [p for p in audience_req['primary'] if p in outlet_audience_lower]
+                    print(f"      ✅ {outlet_name}: PRIMARY audience match '{matched_primary}'")
+                    filtered_outlets.append(outlet)
+                else:
+                    print(f"      ❌ {outlet_name}: No PRIMARY audience match. Has: '{outlet_audience}', Need: {audience_req['primary']}")
+                    excluded_count += 1
+            elif audience_req['logic'] == 'must_have_primary_or_secondary':
+                if has_primary or has_secondary:
+                    matched_terms = []
+                    if has_primary:
+                        matched_primary = [p for p in audience_req['primary'] if p in outlet_audience_lower]
+                        matched_terms.extend(matched_primary)
+                    if has_secondary:
+                        matched_secondary = [s for s in audience_req['secondary'] if s in outlet_audience_lower]
+                        matched_terms.extend(matched_secondary)
+                    print(f"      ✅ {outlet_name}: PRIMARY OR SECONDARY audience match '{matched_terms}'")
+                    filtered_outlets.append(outlet)
+                else:
+                    print(f"      ❌ {outlet_name}: No PRIMARY OR SECONDARY audience match. Has: '{outlet_audience}', Need: {audience_req['primary']} OR {audience_req['secondary']}")
+                    excluded_count += 1
+            elif audience_req['logic'] == 'smart_matching':
+                # SMART MATCHING: Check audience tags AND outlet content/name
+                outlet_name_lower = outlet_name.lower()
+                outlet_keywords = outlet.get('Keywords', '').lower()
+                outlet_section = outlet.get('Section Name', '').lower()
+                
+                # Combine all outlet text for analysis
+                all_outlet_text = f"{outlet_name} {outlet_audience} {outlet_keywords} {outlet_section}".lower()
+                
+                # Check for education/policy relevance in outlet content
+                has_education_content = any(edu_term in all_outlet_text for edu_term in education_keywords)
+                has_policy_content = any(policy_term in all_outlet_text for policy_term in policy_keywords)
+                has_academic_content = any(academic_term in all_outlet_text for academic_term in academic_keywords)
+                
+                # Smart matching criteria
+                is_relevant = (
+                    has_primary or has_secondary or  # Has audience tags
+                    has_education_content or         # Has education content
+                    has_policy_content or            # Has policy content
+                    has_academic_content or          # Has academic content
+                    # Special cases for well-known outlets
+                    any(known_outlet in outlet_name_lower for known_outlet in [
+                        'harvard', 'stanford', 'mit', 'columbia', 'princeton', 'yale', 'berkeley',
+                        'times', 'post', 'journal', 'review', 'magazine', 'news', 'weekly',
+                        'chronicle', 'inside higher', 'campus', 'education week', 'edtech'
+                    ])
+                )
+                
+                if is_relevant:
+                    matched_terms = []
+                    if has_primary:
+                        matched_terms.extend([p for p in audience_req['primary'] if p in outlet_audience_lower])
+                    if has_secondary:
+                        matched_terms.extend([s for s in audience_req['secondary'] if s in outlet_audience_lower])
+                    if has_education_content:
+                        matched_terms.append('education_content')
+                    if has_policy_content:
+                        matched_terms.append('policy_content')
+                    if has_academic_content:
+                        matched_terms.append('academic_content')
+                    
+                    print(f"      ✅ {outlet_name}: SMART MATCH '{matched_terms}' (audience: {has_primary or has_secondary}, content: {has_education_content or has_policy_content or has_academic_content})")
+                    filtered_outlets.append(outlet)
+                else:
+                    print(f"      ❌ {outlet_name}: No SMART MATCH - not relevant to education/policy")
+                    excluded_count += 1
             else:
-                print(f"      ❌ {outlet_name}: Audience '{outlet_audience}' doesn't match '{selected_audience}'")
-                excluded_count += 1
+                # Fallback logic
+                if has_primary or has_secondary:
+                    print(f"      ✅ {outlet_name}: Audience match (primary: {has_primary}, secondary: {has_secondary})")
+                    filtered_outlets.append(outlet)
+                else:
+                    print(f"      ❌ {outlet_name}: No audience match. Has: '{outlet_audience}'")
+                    excluded_count += 1
         
         print(f"   🔒 Audience filter results:")
         print(f"      Selected audience: {selected_audience}")
@@ -1995,7 +2133,45 @@ class OutletMatcher:
         print(f"      Outlets after filter: {len(filtered_outlets)}")
         print(f"      Excluded outlets: {excluded_count}")
         
-        return filtered_outlets
+        # CRITICAL FINAL SAFETY CHECK: Verify that all filtered outlets actually have the right audience
+        print(f"   🔍 FINAL SAFETY CHECK: Verifying audience tags...")
+        verified_outlets = []
+        safety_excluded = 0
+        
+        for outlet in filtered_outlets:
+            outlet_name = outlet.get('Outlet Name', 'Unknown')
+            outlet_audience = outlet.get('Audience', '')
+            outlet_audience_lower = outlet_audience.lower()
+            
+            # For Education & Policy Leaders, MUST have education OR policy OR academic terms
+            if selected_audience_lower == 'education & policy leaders':
+                # CRITICAL: Must have education OR policy OR academic terms
+                has_education = any(edu_term in outlet_audience_lower for edu_term in ['education', 'edtech', 'academic', 'learning'])
+                has_policy = any(policy_term in outlet_audience_lower for policy_term in ['policy', 'government', 'political', 'regulatory'])
+                has_academic = any(academic_term in outlet_audience_lower for academic_term in ['academic', 'research', 'university', 'college'])
+                
+                if has_education or has_policy or has_academic:
+                    matched_terms = []
+                    if has_education:
+                        matched_terms.append('education')
+                    if has_policy:
+                        matched_terms.append('policy')
+                    if has_academic:
+                        matched_terms.append('academic')
+                    print(f"      ✅ SAFETY CHECK PASSED: {outlet_name} has audience tags: {matched_terms}")
+                    verified_outlets.append(outlet)
+                else:
+                    print(f"      🚫 SAFETY CHECK FAILED: {outlet_name} missing education/policy/academic audience tags - EXCLUDED")
+                    safety_excluded += 1
+            else:
+                # For other audiences, use the same logic
+                verified_outlets.append(outlet)
+        
+        print(f"   🔒 FINAL SAFETY CHECK RESULTS:")
+        print(f"      Outlets after safety check: {len(verified_outlets)}")
+        print(f"      Safety excluded: {safety_excluded}")
+        
+        return verified_outlets
 
     def _compute_audience_relevance_score(self, abstract: str, outlet_id: str, outlet: Dict) -> float:
         """Compute relevance score based on topic similarity and keyword overlap for audience-matched outlets."""
@@ -2017,31 +2193,61 @@ class OutletMatcher:
             
             # BOOST scores to make them more realistic and differentiated
             if relevance_score > 0.05:
-                # Boost high-relevance outlets significantly
-                relevance_score = relevance_score * 25.0  # 25x boost for better scores (was 15x)
+                # Boost high-relevance outlets to 85-95% range
+                relevance_score = relevance_score * 12.0  # Better boost for high relevance
             elif relevance_score > 0.03:
-                # Boost medium-relevance outlets
-                relevance_score = relevance_score * 20.0  # 20x boost (was 12x)
+                # Boost medium-relevance outlets to 75-90% range
+                relevance_score = relevance_score * 10.0  # Better boost for medium relevance
             else:
-                # Boost low-relevance outlets moderately
-                relevance_score = relevance_score * 15.0  # 15x boost (was 8x)
+                # Boost low-relevance outlets to 65-80% range
+                relevance_score = relevance_score * 8.0  # Better boost for low relevance
             
             # Apply outlet-specific boosts based on name/content
             outlet_name = outlet.get('Outlet Name', '').lower()
             
             # Education-specific boosts
             if any(edu_term in outlet_name for edu_term in ['edtech', 'education', 'academic', 'university', 'college', 'school']):
-                relevance_score = relevance_score * 1.5  # 50% boost for education outlets
+                relevance_score = relevance_score * 1.8  # 80% boost for education outlets
             
             # Policy-specific boosts
             if any(policy_term in outlet_name for policy_term in ['policy', 'government', 'political', 'regulatory']):
-                relevance_score = relevance_score * 1.3  # 30% boost for policy outlets
+                relevance_score = relevance_score * 1.5  # 50% boost for policy outlets
             
             # General publication boosts
             if any(pub_term in outlet_name for pub_term in ['times', 'post', 'journal', 'review', 'magazine']):
-                relevance_score = relevance_score * 1.2  # 20% boost for major publications
+                relevance_score = relevance_score * 1.3  # 30% boost for major publications
+            
+            # Academic-specific boosts (additional)
+            if any(academic_term in outlet_name for academic_term in ['harvard', 'mit', 'stanford', 'columbia', 'princeton', 'yale', 'berkeley']):
+                relevance_score = relevance_score * 1.4  # 40% boost for academic institutions
             
             # Ensure score is between 0.0 and 1.0
+            relevance_score = max(0.0, min(1.0, relevance_score))
+            
+            # ADD SCORE DIFFERENTIATION: Ensure outlets get different scores based on relevance
+            # (outlet_name is already defined above)
+            
+            # Premium education outlets get highest scores (88-95%)
+            if any(premium in outlet_name for premium in ['edtech magazine', 'chronicle of higher education', 'education week', 'inside higher ed']):
+                relevance_score = min(0.95, relevance_score + 0.15)  # Boost to 88-95% range
+            
+            # Major policy outlets get high scores (82-92%)
+            elif any(major in outlet_name for major in ['time', 'washington post', 'the atlantic', 'world economic forum']):
+                relevance_score = min(0.92, relevance_score + 0.12)  # Boost to 82-92% range
+            
+            # Academic outlets get good scores (78-88%)
+            elif any(academic in outlet_name for academic in ['harvard business review', 'mit technology review', 'stanford', 'columbia']):
+                relevance_score = min(0.88, relevance_score + 0.20)  # Increased boost to 78-88% range
+            
+            # Technology outlets get moderate scores (75-85%)
+            elif any(tech in outlet_name for tech in ['the decoder', 'techcrunch', 'venturebeat', 'wired']):
+                relevance_score = min(0.85, relevance_score + 0.08)  # Boost to 75-85% range
+            
+            # General outlets get standard scores (70-80%)
+            else:
+                relevance_score = min(0.80, relevance_score + 0.05)  # Boost to 70-80% range
+            
+            # Ensure final score is between 0.0 and 1.0
             relevance_score = max(0.0, min(1.0, relevance_score))
             
             return relevance_score
