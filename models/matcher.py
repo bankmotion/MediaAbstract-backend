@@ -10,14 +10,14 @@ import math
 class OutletMatcher:
     """WriteFor.co Matching Logic v2 - Hard vertical filtering with explainable scoring."""
     
-    # Configuration constants - Optimized for fintech results while maintaining quality
-    TOPIC_SIMILARITY_THRESHOLD = 0.05  # Further lowered to ensure fintech outlets pass
-    TOTAL_SCORE_THRESHOLD = 0.20       # Further lowered to ensure fintech outlets pass
-    MIN_SCORE_THRESHOLD = 0.20         # Updated to match total threshold
+    # Configuration constants - More permissive for sustainability
+    TOPIC_SIMILARITY_THRESHOLD = 0.05  # Lowered to allow more sustainability outlets
+    TOTAL_SCORE_THRESHOLD = 0.30       # Lowered to allow more outlets through
+    MIN_SCORE_THRESHOLD = 0.30         # Updated to match total threshold
     
-    # NEW: Stricter cutoff for pages 2+ to eliminate noise
-    PAGE_1_STRICT_THRESHOLD = 0.70    # Page 1: Allow 70%+ scores
-    PAGE_2_PLUS_STRICT_THRESHOLD = 0.70  # Pages 2+: Require 70%+ scores + category filtering
+    # NEW: More permissive cutoff for pages 2+ to show more outlets
+    PAGE_1_STRICT_THRESHOLD = 0.50    # Page 1: Allow 50%+ scores
+    PAGE_2_PLUS_STRICT_THRESHOLD = 0.40  # Pages 2+: Require 40%+ scores + category filtering
     
     # Scoring weights per v2 specification
     VERTICAL_MATCH_WEIGHT = 0.55       # 55% - Vertical alignment
@@ -283,6 +283,7 @@ class OutletMatcher:
     def __init__(self, supabase_client: Client):
         """Initialize the outlet matcher with v2 configuration."""
         self.supabase = supabase_client
+        print("🔄 OutletMatcher initialized with updated sustainability scoring - More permissive thresholds")
         self._vectorizer = TfidfVectorizer(
             stop_words='english', 
             ngram_range=(1, 3), 
@@ -307,28 +308,20 @@ class OutletMatcher:
         try:
             import spacy
             nlp = spacy.load("en_core_web_sm")
-            print("✅ spaCy model loaded successfully")
             return nlp
         except Exception as e:
-            # Debug info removed
-            pass
             return None
 
     def _initialize_outlet_data(self):
         """Pre-compute outlet data for optimal performance."""
         try:
             outlets = self.get_outlets()
-            print(f"🔄 Initializing data for {len(outlets)} outlets...")
-            
-            valid_outlets = 0
-            skipped_outlets = 0
             
             for outlet in outlets:
                 outlet_id = outlet.get('id', outlet.get('Outlet Name', ''))
                 
                 # Skip outlets with no valid ID
                 if not outlet_id:
-                    skipped_outlets += 1
                     continue
                 
                 # Parse semicolon-separated fields
@@ -347,7 +340,6 @@ class OutletMatcher:
                 
                 # Skip outlets with no meaningful text
                 if not outlet_text.strip():
-                    skipped_outlets += 1
                     continue
                 
                 self._outlet_texts[outlet_id] = outlet_text
@@ -356,15 +348,8 @@ class OutletMatcher:
                 self._outlet_embeddings[outlet_id] = self._compute_outlet_embedding(
                     outlet_text, outlet_id
                 )
-                
-                valid_outlets += 1
-            
-            # Debug info removed
-            print(f"   Valid outlets: {valid_outlets}")
-            print(f"   Skipped outlets: {skipped_outlets}")
             
         except Exception as e:
-            # Debug info removed
             pass
 
     def _determine_outlet_vertical(self, outlet: Dict) -> str:
@@ -421,10 +406,6 @@ class OutletMatcher:
         ]
         
         if any(term in outlet_name for term in fintech_outlet_names):
-            print(f'   🏦 Fintech outlet detected: {outlet_name}')
-            # Debug: show which term matched
-            matched_term = next(term for term in fintech_outlet_names if term in outlet_name)
-            print(f'      Matched term: \"{matched_term}\"')
             return 'fintech'
         
         # Check audience and keywords for fintech focus (but exclude investment terms)
@@ -484,7 +465,6 @@ class OutletMatcher:
             return 'business_general'
         
         # Default fallback
-        print(f"   No match found, using fallback: 'general'")
         return 'general'
 
     def _determine_outlet_type(self, outlet: Dict) -> str:
@@ -517,7 +497,6 @@ class OutletMatcher:
         # Check if any policy terms are present
         has_policy_intent = any(term in abstract_lower for term in self.POLICY_TERMS)
         
-            # Debug info removed
         if has_policy_intent:
             found_terms = [term for term in self.POLICY_TERMS if term in abstract_lower]
             print(f"      Found policy terms: {found_terms}")
@@ -531,7 +510,6 @@ class OutletMatcher:
         # Check if any wellness terms are present
         has_wellness_intent = any(term in abstract_lower for term in self.WELLNESS_TERMS)
         
-            # Debug info removed
         if has_wellness_intent:
             found_terms = [term for term in self.WELLNESS_TERMS if term in abstract_lower]
             print(f"      Found wellness terms: {found_terms}")
@@ -572,7 +550,6 @@ class OutletMatcher:
         # Check if abstract contains relevant terms for the outlet type
         if outlet_type == 'cloud_computing' or outlet_type == 'enterprise_it':
             has_relevant_terms = any(term in abstract_lower for term in self.CLOUD_TERMS)
-            # Debug info removed
             if has_relevant_terms:
                 found_terms = [term for term in self.CLOUD_TERMS if term in abstract_lower]
                 print(f"      Found cloud/IT terms: {found_terms}")
@@ -580,7 +557,6 @@ class OutletMatcher:
         
         elif outlet_type == 'health_it':
             has_relevant_terms = any(term in abstract_lower for term in self.HEALTH_IT_TERMS)
-            # Debug info removed
             if has_relevant_terms:
                 found_terms = [term for term in self.HEALTH_IT_TERMS if term in abstract_lower]
                 print(f"      Found health IT terms: {found_terms}")
@@ -634,7 +610,6 @@ class OutletMatcher:
                     'keywords': self._extract_fallback_keywords(outlet_text)
                 }
         except Exception as e:
-            # Debug info removed
             pass
             return {
                 'vector': None,
@@ -674,22 +649,18 @@ class OutletMatcher:
         """Get the target vertical from the selected industry/audience."""
         industry_lower = industry.lower()
         
-            # Debug info removed
         
         # Check for exact matches first
         for audience, vertical in self.AUDIENCE_TO_VERTICAL.items():
             if audience in industry_lower:
-                print(f"   Exact match found: '{audience}' → '{vertical}'")
                 return vertical
         
         # Check for partial matches
         for audience, vertical in self.AUDIENCE_TO_VERTICAL.items():
             if any(word in industry_lower for word in audience.split()):
-                print(f"   Partial match found: '{audience}' → '{vertical}'")
                 return vertical
         
         # Default fallback
-        print(f"   No match found, using fallback: 'general'")
         return 'general'
 
     def _apply_hard_vertical_filter(self, outlets: List[Dict], target_vertical: str, abstract: str = "") -> List[Dict]:
@@ -697,13 +668,8 @@ class OutletMatcher:
         if target_vertical == 'general':
             return outlets
         
-            # Debug info removed
-        print(f"   Strategy: REMOVE irrelevant outlets completely, keep only relevant ones")
-        
         # For healthcare, we want to be SMART in filtering - not too aggressive
         if target_vertical == 'healthcare':
-            # Debug info removed
-            
             # CRITICAL: Define filter lists for healthcare - be more selective
             completely_irrelevant = [
                 # Known completely irrelevant outlets (remove these)
@@ -752,7 +718,6 @@ class OutletMatcher:
                 is_irrelevant = False
                 for irrelevant_term in completely_irrelevant:
                     if irrelevant_term in outlet_lower:
-            # Debug info removed
                         is_irrelevant = True
                         removed_count += 1
                         break
@@ -764,7 +729,6 @@ class OutletMatcher:
                 if outlet_name in self.HEALTHCARE_ALLOWLIST:
                     outlet['_healthcare_trade'] = True
                     outlet['_allowlist_boost'] = 0.25
-            # Debug info removed
                     filtered_outlets.append(outlet)
                     continue
 
@@ -781,7 +745,6 @@ class OutletMatcher:
                 if any(health_name in outlet_lower for health_name in healthcare_outlet_names):
                     outlet['_healthcare_trade'] = True
                     outlet['_allowlist_boost'] = 0.25
-            # Debug info removed
                     filtered_outlets.append(outlet)
                     continue
                 
@@ -806,7 +769,6 @@ class OutletMatcher:
                 has_healthcare_focus = any(health_term in outlet_lower for health_term in healthcare_terms)
                 
                 if has_healthcare_focus:
-            # Debug info removed
                     filtered_outlets.append(outlet)
                 else:
                     # CHECK: Does this outlet have business/tech focus that could be relevant to healthcare?
@@ -827,47 +789,39 @@ class OutletMatcher:
                         ]
                         
                         if any(generic in outlet_lower for generic in too_generic):
-            # Debug info removed
                             removed_count += 1
                             continue
                         
                         # This could be relevant to healthcare business/tech - keep it but mark for lower scoring
                         outlet['_business_tech_focus'] = True
                         outlet['_business_tech_penalty'] = -0.15  # Small penalty for business/tech focus
-            # Debug info removed
                         filtered_outlets.append(outlet)
                     else:
                         # This outlet has no healthcare or business/tech focus - remove it
-            # Debug info removed
                         removed_count += 1
                         continue
             
-            # Debug info removed
             print(f"      Outlets before: {len(outlets)}")
             print(f"      Outlets after: {len(filtered_outlets)}")
             print(f"      Removed: {removed_count}")
             
             # CRITICAL: Allow more outlets for healthcare (15-20 instead of just 8)
             if len(filtered_outlets) > 20:
-            # Debug info removed
                 # Prioritize healthcare trade outlets
                 healthcare_outlets = [o for o in filtered_outlets if o.get('_healthcare_trade')]
                 other_healthcare = [o for o in filtered_outlets if not o.get('_healthcare_trade')]
                 
                 # Take all healthcare trade outlets + top others up to 20 total
                 filtered_outlets = healthcare_outlets + other_healthcare[:20-len(healthcare_outlets)]
-            # Debug info removed
             
             # CRITICAL: If still no outlets, return empty list (don't show irrelevant ones)
             if len(filtered_outlets) == 0:
-                # Debug info removed
                 return []
 
             return filtered_outlets
         
         # For fintech, apply the hard gate system
         elif target_vertical == 'fintech':
-            # Debug info removed
             return self._apply_fintech_hard_gate(outlets, abstract)
         
         # For other verticals, keep existing logic
@@ -901,12 +855,9 @@ class OutletMatcher:
             # Apply vertical filtering for non-healthcare
             if outlet_vertical in acceptable_verticals:
                 filtered_outlets.append(outlet)
-            # Debug info removed
             else:
                 excluded_count += 1
-            # Debug info removed
         
-            # Debug info removed
         print(f"   Target vertical: {target_vertical}")
         print(f"   Acceptable verticals: {acceptable_verticals}")
         print(f"   Outlets before filter: {len(outlets)}")
@@ -999,46 +950,35 @@ class OutletMatcher:
                 outlet_name = str(outlet_id)  # Use ID as fallback
             
             outlet_name_lower = outlet_name.lower()
-            # Debug info removed
             
             # Simple test to verify differentiation is working
-            # Debug info removed
             print(f"      Base score: {total_score:.3f}")
             print(f"      Outlet name: '{outlet_name}'")
             print(f"      Outlet name lower: '{outlet_name_lower}'")
             
             # Test each boost condition
             if any(premium in outlet_name_lower for premium in ['dark reading', 'securityweek', 'sc magazine', 'bleepingcomputer']):
-                # Debug info removed
                 pass
             elif any(standard in outlet_name_lower for standard in ['security boulevard', 'cyber defense magazine', 'the hacker news']):
-                # Debug info removed
                 pass
             elif any(general in outlet_name_lower for general in ['infosecurity magazine', 'hit consultant']):
-                # Debug info removed
                 pass
             else:
-                # Debug info removed
                 pass
             
             if any(non_cyber in outlet_name_lower for non_cyber in ['healthcare', 'cloud computing', 'tech', 'it news', 'business', 'marketing']):
-                # Debug info removed
                 pass
             else:
-                # Debug info removed
                 pass
             
             # Premium cybersecurity outlets get higher scores
             if any(premium in outlet_name_lower for premium in ['dark reading', 'securityweek', 'sc magazine', 'bleepingcomputer']):
                 total_score = total_score * 1.35  # 35% boost for premium outlets
-                # Debug info removed
                 pass
             elif any(standard in outlet_name_lower for standard in ['security boulevard', 'cyber defense magazine', 'the hacker news']):
                 total_score = total_score * 1.25  # 25% boost for standard outlets
-            # Debug info removed
             elif any(general in outlet_name_lower for general in ['infosecurity magazine', 'hit consultant']):
                 total_score = total_score * 1.20  # 20% boost for general outlets
-            # Debug info removed
             
             # Apply Milestone 6 refinements
             
@@ -1051,15 +991,12 @@ class OutletMatcher:
                 policy_intent = self._detect_policy_intent(abstract)
                 if not policy_intent:
                     total_score = total_score * (1 + self.GENERAL_POLITICS_PENALTY)  # -15% penalty
-            # Debug info removed
             else:
                     total_score = total_score * (1 + self.GENERAL_POLITICS_POLICY_BOOST)  # +5% boost
-            # Debug info removed
             
             # 2. Adjacent outlet penalty for cybersecurity
             if outlet_data and outlet_data.get('_adjacent_outlet', False):
                 total_score = total_score * (1 + self.ADJACENCY_PENALTY)  # -20% penalty
-            # Debug info removed
             
             # 3. Wellness outlet penalty for healthcare - REMOVED (now handled in section 6)
             # This was causing duplicate penalties
@@ -1070,41 +1007,32 @@ class OutletMatcher:
                 if editorial_level in self.EDITORIAL_PRIORS:
                     editorial_boost = self.EDITORIAL_PRIORS[editorial_level]
                     total_score = total_score * (1 + editorial_boost)
-            # Debug info removed
             
             # 5. Penalize non-cybersecurity outlets that slipped through
             if any(non_cyber in outlet_name_lower for non_cyber in ['healthcare', 'cloud computing', 'tech', 'it news', 'business', 'marketing']):
                 total_score = total_score * 0.6  # 40% penalty for non-cybersecurity focus
-            # Debug info removed
             
             # 6. CRITICAL: Apply healthcare-specific penalties for irrelevant outlets
             if target_vertical == 'healthcare' and outlet_data:
-            # Debug info removed
                 
                 # Check for irrelevant outlets (should be heavily penalized)
                 if outlet_data.get('_irrelevant_outlet', False):
                     penalty = outlet_data.get('_irrelevant_penalty', -0.40)
                     total_score += penalty
-            # Debug info removed
                 elif outlet_data.get('_tech_outlet', False):
                     penalty = outlet_data.get('_tech_penalty', -0.15)
                     total_score += penalty
-            # Debug info removed
                 elif outlet_data.get('_consumer_wellness', False):
                     penalty = outlet_data.get('_wellness_penalty', -0.20)
                     total_score += penalty
-            # Debug info removed
                 else:
-            # Debug info removed
                 
                     # Apply healthcare allowlist boost
                     if outlet_data.get('_healthcare_trade', False):
                         boost = outlet_data.get('_allowlist_boost', 0.25)
                         total_score += boost
-                        # Debug info removed
                         pass
                 
-            # Debug info removed
             
             # 7. Fintech hard gate scoring (JSON ruleset implementation)
             if target_vertical == 'fintech':
@@ -1112,12 +1040,10 @@ class OutletMatcher:
                 if outlet_data and outlet_data.get('_fintech_allowed'):
                     boost = outlet_data.get('_allowed_boost', 0.10)
                     total_score += boost
-            # Debug info removed
                 
                 if outlet_data and outlet_data.get('_fintech_section_allowed'):
                     boost = outlet_data.get('_section_boost', 0.05)
                     total_score += boost
-            # Debug info removed
                 
                 # Apply topic-specific boosts from JSON ruleset
                 abstract_lower = abstract.lower()
@@ -1127,7 +1053,6 @@ class OutletMatcher:
                             if topic in abstract_lower:
                                 boost = boost_rule['score_delta']
                                 total_score += boost
-            # Debug info removed
                                 break
                 
                 # Apply outlet-specific boosts from JSON ruleset
@@ -1137,7 +1062,6 @@ class OutletMatcher:
                             if outlet_name_exact.lower() in outlet_name_lower:
                                 boost = boost_rule['score_delta']
                                 total_score += boost
-            # Debug info removed
                                 break
                 
                 # Apply demotes from JSON ruleset
@@ -1147,7 +1071,6 @@ class OutletMatcher:
                             if outlet_name_exact.lower() in outlet_name_lower:
                                 demote = demote_rule['score_delta']
                                 total_score += demote
-            # Debug info removed
                                 break
                 
                 # Apply section demotes from JSON ruleset
@@ -1159,7 +1082,6 @@ class OutletMatcher:
                                 if section.lower() in section_name:
                                     demote = demote_rule['score_delta']
                                     total_score += demote
-            # Debug info removed
                                     break
                 
                 # Apply keyword demotes from JSON ruleset
@@ -1170,7 +1092,6 @@ class OutletMatcher:
                             if keyword in outlet_text:
                                 demote = demote_rule['score_delta']
                                 total_score += demote
-            # Debug info removed
                                 break
             
             # 8. Healthcare trade boost for healthcare pitches - REMOVED (now handled in section 6)
@@ -1180,10 +1101,8 @@ class OutletMatcher:
             if target_vertical == 'fintech':
                 if outlet_data and outlet_data.get('_renewable_energy', False):
                     total_score = total_score * 0.7  # -30% penalty for renewable energy outlets
-            # Debug info removed
                 if outlet_data and outlet_data.get('_limited_fintech', False):
                     total_score = total_score * 0.8  # -20% penalty for limited fintech focus
-            # Debug info removed
             
             # Ensure score differentiation
             if total_score > 0.85:
@@ -1191,104 +1110,77 @@ class OutletMatcher:
             elif total_score < 0.3:
                 total_score = 0.3 + (total_score - 0.3) * 0.8  # Boost low scores
             
-            # Debug info removed
-            # Debug info removed
             
             # ENHANCED DIFFERENTIATION: Force score differentiation based on outlet characteristics
             if target_vertical == 'fintech':
-            # Debug info removed
                 
                 # Check for premium fintech trade outlets (PYMNTS, Finextra, Banking Dive)
                 if any(premium in outlet_name_lower for premium in ['pymnts', 'finextra', 'banking dive', 'bankingdive', 'banking-dive']):
                     total_score = 0.87 + (hash(outlet_id) % 6) * 0.01  # Force 87-92% range for premium fintech trade
-            # Debug info removed
                 # Check for core fintech outlets (FT, Bloomberg, WSJ)
                 elif any(core in outlet_name_lower for core in ['financial times', 'bloomberg', 'wall street journal', 'wsj']):
                     total_score = 0.79 + (hash(outlet_id) % 4) * 0.01  # Force 79-82% range for core fintech
-            # Debug info removed
                 # Check for fintech trade outlets (Payments Dive, American Banker)
                 elif any(fintech in outlet_name_lower for fintech in ['payments dive', 'paymentsdive', 'payments-dive', 'american banker']):
                     total_score = 0.75 + (hash(outlet_id) % 4) * 0.01  # Force 75-78% range for fintech
-            # Debug info removed
                 # Check for tech outlets (TechCrunch, VentureBeat)
                 elif any(tech in outlet_name_lower for tech in ['techcrunch', 'venturebeat', 'venture beat']):
                     total_score = 0.71 + (hash(outlet_id) % 4) * 0.01  # Force 71-74% range for tech
-            # Debug info removed
                 # Check for business outlets (Fortune, Forbes, CNBC)
                 elif any(business in outlet_name_lower for business in ['fortune', 'forbes', 'cnbc']):
                     total_score = 0.67 + (hash(outlet_id) % 4) * 0.01  # Force 67-70% range for business
-            # Debug info removed
                 # Check for marketing outlets (AdAge, AdWeek)
                 elif any(marketing in outlet_name_lower for marketing in ['adage', 'adweek', 'marketing']):
                     total_score = 0.63 + (hash(outlet_id) % 4) * 0.01  # Force 63-66% range for marketing
-            # Debug info removed
                 # Check for general news outlets (Boston Globe, local news)
                 elif any(news in outlet_name_lower for news in ['boston globe', 'general news', 'local']):
                     total_score = 0.59 + (hash(outlet_id) % 4) * 0.01  # Force 59-62% range for general news
-            # Debug info removed
                 # Check for specialized outlets (Supply Chain, CMS, content)
                 elif any(specialized in outlet_name_lower for specialized in ['supply chain', 'cms', 'content', 'informationweek', 'techtarget']):
                     total_score = 0.55 + (hash(outlet_id) % 4) * 0.01  # Force 55-58% range for specialized
-            # Debug info removed
                 # Check for environmental/sustainability outlets (should be penalized for fintech)
                 elif any(env in outlet_name_lower for env in ['greenbiz', 'trellis', 'sustainability', 'environmental', 'clean']):
                     total_score = 0.45 + (hash(outlet_id) % 4) * 0.01  # Force 45-48% range for environmental
-            # Debug info removed
                 else:
                     total_score = 0.51 + (hash(outlet_id) % 8) * 0.01  # Force 51-58% range for others
-            # Debug info removed
                 
                 # CRITICAL: Cap fintech scores to prevent >100%
                 total_score = max(0.0, min(1.0, total_score))
-            # Debug info removed
                 
-            # Debug info removed
             
             elif target_vertical == 'healthcare':
-            # Debug info removed
                 
                 # Check for premium healthcare trade outlets
                 if any(premium in outlet_name_lower for premium in ['modern healthcare', 'healthcare it news', 'fierce healthcare', 'medcity news', 'healthleaders', 'beckers hospital review']):
                     total_score = 0.87 + (hash(outlet_id) % 6) * 0.01  # Force 87-92% range for premium healthcare trade
-            # Debug info removed
                 # Check for core healthcare outlets
                 elif any(core in outlet_name_lower for core in ['healthcare dive', 'health data management', 'healthcare finance news', 'himss media', 'healthcare innovation', 'healthcare design', 'stat news']):
                     total_score = 0.79 + (hash(outlet_id) % 4) * 0.01  # Force 79-82% range for core healthcare
-            # Debug info removed
                 # Check for health IT outlets
                 elif any(health_it in outlet_name_lower for health_it in ['healthcare it', 'health it', 'medical device', 'digital health', 'telemedicine', 'ehr', 'emr', 'hipaa']):
                     total_score = 0.75 + (hash(outlet_id) % 4) * 0.01  # Force 75-78% range for health IT
-            # Debug info removed
                 # Check for medical/clinical outlets
                 elif any(medical in outlet_name_lower for medical in ['medical', 'clinical', 'patient', 'hospital', 'physician', 'doctor', 'nurse']):
                     total_score = 0.71 + (hash(outlet_id) % 4) * 0.01  # Force 71-74% range for medical
-            # Debug info removed
                 # Check for business outlets (Fortune, Forbes, CNBC)
                 elif any(business in outlet_name_lower for business in ['fortune', 'forbes', 'cnbc', 'bloomberg', 'wall street journal']):
                     total_score = 0.67 + (hash(outlet_id) % 4) * 0.01  # Force 67-70% range for business
-            # Debug info removed
                 # Check for tech outlets (TechCrunch, VentureBeat)
                 elif any(tech in outlet_name_lower for tech in ['techcrunch', 'venturebeat', 'wired', 'the verge', 'ars technica']):
                     total_score = 0.63 + (hash(outlet_id) % 4) * 0.01  # Force 63-66% range for tech
-            # Debug info removed
                 # Check for general news outlets
                 elif any(news in outlet_name_lower for news in ['usa today', 'boston globe', 'general news', 'local']):
                     total_score = 0.59 + (hash(outlet_id) % 4) * 0.01  # Force 59-62% range for general news
-            # Debug info removed
                 # Check for specialized outlets (should be penalized for healthcare)
                 elif any(specialized in outlet_name_lower for specialized in ['search engine', 'seo', 'marketing', 'advertising', 'construction', 'retail', 'software', 'development']):
                     total_score = 0.45 + (hash(outlet_id) % 4) * 0.01  # Force 45-48% range for specialized
-            # Debug info removed
                 else:
                     total_score = 0.51 + (hash(outlet_id) % 8) * 0.01  # Force 51-58% range for others
-            # Debug info removed
                 
                 # CRITICAL: Cap healthcare scores to prevent >100%
                 total_score = max(0.0, min(1.0, total_score))
-            # Debug info removed
                 
                 # CRITICAL: Skip the rest of the scoring logic since we've set the score
-            # Debug info removed
                 return {
                     'vertical_match': vertical_match,
                     'topic_similarity': topic_similarity,
@@ -1302,55 +1194,42 @@ class OutletMatcher:
                 # Cybersecurity and other verticals
                 if 'securityweek' in outlet_name_lower or 'sc magazine' in outlet_name_lower:
                     total_score = 0.88 + (hash(outlet_id) % 8) * 0.01  # Force 88-95% range for premium
-            # Debug info removed
                 elif 'security boulevard' in outlet_name_lower or 'cyber defense magazine' in outlet_name_lower:
                     total_score = 0.78 + (hash(outlet_id) % 8) * 0.01  # Force 78-85% range for standard
-            # Debug info removed
                 elif 'the hacker news' in outlet_name_lower or 'infosecurity magazine' in outlet_name_lower:
                     total_score = 0.72 + (hash(outlet_id) % 8) * 0.01  # Force 72-79% range for general
-            # Debug info removed
                 elif 'cloud computing' in outlet_name_lower:
                     total_score = 0.58 + (hash(outlet_id) % 8) * 0.01  # Force 58-65% range for adjacent
-            # Debug info removed
                 elif 'healthcare' in outlet_name_lower:
                     total_score = 0.52 + (hash(outlet_id) % 8) * 0.01  # Force 52-59% range for healthcare
-            # Debug info removed
                 else:
                     total_score = 0.65 + (hash(outlet_id) % 10) * 0.01  # Force 65-74% range for others
-            # Debug info removed
             
             # APPLY POST-SCORE PENALTIES AND BOOSTS
             if target_vertical == 'healthcare' and outlet_data:
-            # Debug info removed
-            # Debug info removed
                 
                 # Apply allowlist boost
                 if outlet_data.get('_allowlist_boost'):
                     boost = outlet_data.get('_allowlist_boost', 0.0)
                     total_score += boost
-            # Debug info removed
                 
                 # Apply wellness penalty (unless abstract contains wellness terms)
                 if outlet_data.get('_wellness_penalty'):
                     penalty = outlet_data.get('_wellness_penalty', 0.0)
                     total_score += penalty
-            # Debug info removed
                 
                 # Apply irrelevant outlet penalty
                 if outlet_data.get('_irrelevant_penalty'):
                     penalty = outlet_data.get('_irrelevant_penalty', 0.0)
                     total_score += penalty
-            # Debug info removed
                 
                 # Apply tech outlet penalty
                 if outlet_data.get('_tech_penalty'):
                     penalty = outlet_data.get('_tech_penalty', 0.0)
                     total_score += penalty
-            # Debug info removed
                 
                 # CRITICAL: Cap score at 100% and ensure minimum of 0%
                 total_score = max(0.0, min(1.0, total_score))
-            # Debug info removed
             
             # CRITICAL: Always cap final score at 100% for ALL verticals
             total_score = max(0.0, min(1.0, total_score))
@@ -1365,7 +1244,6 @@ class OutletMatcher:
             }
             
         except Exception as e:
-            # Debug info removed
             pass
             return self._default_components()
 
@@ -1398,7 +1276,6 @@ class OutletMatcher:
         try:
             outlet_text = self._outlet_texts.get(outlet_id, '')
             if not outlet_text:
-            # Debug info removed
                 return 0.0
             
             # Extract key cybersecurity terms from abstract
@@ -1446,7 +1323,6 @@ class OutletMatcher:
                 boosted_similarity = 0.05  # Minimum for cybersecurity content
             
             # Debug logging
-            # Debug info removed
             print(f"      Base similarity: {base_similarity:.3f}, Term matches: {term_matches}")
             print(f"      Abstract words: {len(abstract_words)}, Outlet words: {len(outlet_words)}")
             print(f"      Intersection: {intersection}, Union: {union}")
@@ -1454,7 +1330,6 @@ class OutletMatcher:
             return boosted_similarity
             
         except Exception as e:
-            # Debug info removed
             pass
             return 0.0
 
@@ -1463,7 +1338,6 @@ class OutletMatcher:
         try:
             outlet_keywords = self._outlet_keywords.get(outlet_id, [])
             if not outlet_keywords:
-            # Debug info removed
                 return 0.05  # Return minimum score instead of 0
             
             # Extract key cybersecurity terms from abstract
@@ -1502,7 +1376,6 @@ class OutletMatcher:
                 boosted_overlap = boosted_overlap * 0.5  # 50% penalty for non-cybersecurity focus
             
             # Debug logging
-            # Debug info removed
             print(f"      Base overlap: {base_overlap:.3f}, Term matches: {term_matches}")
             print(f"      Abstract words: {len(abstract_words)}, Outlet keywords: {total_keywords}")
             print(f"      Intersection: {intersection}")
@@ -1511,7 +1384,6 @@ class OutletMatcher:
             return max(0.02, boosted_overlap)
             
         except Exception as e:
-            # Debug info removed
             pass
             return 0.05  # Return minimum score
 
@@ -1553,7 +1425,6 @@ class OutletMatcher:
                 return self._extract_fallback_keywords(text)
                 
         except Exception as e:
-            # Debug info removed
             pass
             return []
 
@@ -1608,7 +1479,6 @@ class OutletMatcher:
     def find_matches(self, abstract: str, industry: str, limit: int = 20, debug_mode: bool = False) -> List[Dict]:
         """Find matching outlets using AUDIENCE-FIRST filtering with topic/keyword relevance scoring."""
         try:
-            # Debug info removed
             print("=" * 70)
             
             # Get all outlets
@@ -1617,20 +1487,16 @@ class OutletMatcher:
                 print("❌ No outlets found in database")
                 return []
             
-            # Debug info removed
             
             # STEP 1: HARD FILTER BY AUDIENCE FIELD FIRST
-            # Debug info removed
             audience_filtered_outlets = self._apply_hard_audience_filter(all_outlets, industry)
             
             if not audience_filtered_outlets:
                 print("❌ No outlets found after audience filtering")
                 return []
             
-            # Debug info removed
             
             # STEP 2: COMPUTE TOPIC/KEYWORD RELEVANCE SCORING
-            # Debug info removed
             scored_rows = []
             
             for outlet in audience_filtered_outlets:
@@ -1638,13 +1504,11 @@ class OutletMatcher:
                 outlet_name = outlet.get('Outlet Name', 'Unknown')
                 
                 if outlet_id not in self._outlet_texts:
-            # Debug info removed
                     continue
                 
                 # Compute topic/keyword relevance score (0.0 to 1.0)
                 relevance_score = self._compute_audience_relevance_score(abstract, outlet_id, outlet)
                 
-            # Debug info removed
                 
                 scored_rows.append({
                     'outlet': outlet,
@@ -1694,7 +1558,6 @@ class OutletMatcher:
                 
                 matches.append(result)
             
-            # Debug info removed
             print(f"   Selected audience: {industry}")
             print(f"   Total outlets: {len(all_outlets)}")
             print(f"   Audience-filtered outlets: {len(audience_filtered_outlets)}")
@@ -1705,7 +1568,6 @@ class OutletMatcher:
             return matches
             
         except Exception as e:
-            # Debug info removed
             pass
             import traceback
             traceback.print_exc()
@@ -1732,13 +1594,11 @@ class OutletMatcher:
             response = self.supabase.table("outlets").select("*").execute()
             return response.data if response.data else []
         except Exception as e:
-            # Debug info removed
             pass
             return []
 
     def _apply_fintech_hard_gate(self, outlets: List[Dict], abstract: str) -> List[Dict]:
         """Apply fintech hard gate system based on JSON ruleset."""
-            # Debug info removed
         print(f"      Version: {self.FINTECH_HARD_GATE['version']}")
         
         # Step 1: Apply hard gate - outlets must match finance/fintech topics/keywords
@@ -1761,7 +1621,6 @@ class OutletMatcher:
                     for topic in topic_values['values']:
                         if topic in abstract_lower or topic in outlet_lower or topic in outlet_keywords or topic in outlet_audience:
                             passes_hard_gate = True
-            # Debug info removed
                             break
                     if passes_hard_gate:
                         break
@@ -1769,7 +1628,6 @@ class OutletMatcher:
                     for keyword in topic_values['values']:
                         if keyword in abstract_lower or keyword in outlet_lower or keyword in outlet_keywords or keyword in outlet_audience:
                             passes_hard_gate = True
-            # Debug info removed
                             break
                     if passes_hard_gate:
                         break
@@ -1778,7 +1636,6 @@ class OutletMatcher:
                 hard_gate_outlets.append(outlet)
             else:
                 hard_gate_failed += 1
-            # Debug info removed
         
         print(f"      Hard gate results: {len(hard_gate_outlets)} passed, {hard_gate_failed} failed")
         
@@ -1795,7 +1652,6 @@ class OutletMatcher:
             is_denied = False
             for denied_outlet in self.FINTECH_HARD_GATE['deny']['outlets_exact']:
                 if outlet_name == denied_outlet:
-            # Debug info removed
                     is_denied = True
                     denied_count += 1
                     break
@@ -1806,7 +1662,6 @@ class OutletMatcher:
             # Check deny sections
             for denied_section in self.FINTECH_HARD_GATE['deny']['sections_contains']:
                 if denied_section.lower() in outlet_section:
-            # Debug info removed
                     is_denied = True
                     denied_count += 1
                     break
@@ -1818,7 +1673,6 @@ class OutletMatcher:
             outlet_text = f"{outlet_name} {outlet.get('Keywords', '')} {outlet.get('Audience', '')}".lower()
             for denied_keyword in self.FINTECH_HARD_GATE['deny']['keywords']:
                 if denied_keyword in outlet_text:
-            # Debug info removed
                     is_denied = True
                     denied_count += 1
                     break
@@ -1832,7 +1686,6 @@ class OutletMatcher:
                 if outlet_name == allowed_outlet:
                     outlet['_fintech_allowed'] = True
                     outlet['_allowed_boost'] = 0.10  # +10% boost for allowed outlets
-            # Debug info removed
                     is_allowed = True
                     break
             
@@ -1842,13 +1695,11 @@ class OutletMatcher:
                     if allowed_section.lower() in outlet_section:
                         outlet['_fintech_section_allowed'] = True
                         outlet['_section_boost'] = 0.05  # +5% boost for allowed sections
-            # Debug info removed
                         is_allowed = True
                         break
             
             # If not explicitly allowed, still include if it passed hard gate
             if not is_allowed:
-                # Debug info removed
                 pass
             
             final_outlets.append(outlet)
@@ -1857,15 +1708,12 @@ class OutletMatcher:
         
         # Step 3: Apply page cap
         if len(final_outlets) > self.FINTECH_HARD_GATE['page_cap']:
-            # Debug info removed
             # Prioritize allowed outlets
             allowed_outlets = [o for o in final_outlets if o.get('_fintech_allowed') or o.get('_fintech_section_allowed')]
             other_outlets = [o for o in final_outlets if not (o.get('_fintech_allowed') or o.get('_fintech_section_allowed'))]
             
             final_outlets = allowed_outlets + other_outlets[:self.FINTECH_HARD_GATE['page_cap']-len(allowed_outlets)]
-            # Debug info removed
         
-            # Debug info removed
         print(f"      Outlets before: {len(outlets)}")
         print(f"      Outlets after: {len(final_outlets)}")
         print(f"      Hard gate failed: {hard_gate_failed}")
@@ -1875,7 +1723,6 @@ class OutletMatcher:
 
     def _filter_noise_outlets(self, outlets: List[Dict], target_vertical: str) -> List[Dict]:
         """Filter out noise outlets based on user feedback and category relevance."""
-            # Debug info removed
         
         # Define noise outlets per category (from user feedback)
         noise_outlets = {
@@ -1921,18 +1768,15 @@ class OutletMatcher:
                 outlet = outlet_row
                 outlet_name = outlet.get('Outlet Name', 'Unknown')
             
-            # Debug info removed
             
             # Check if outlet is in noise list (EXACT MATCH)
             is_noise = False
             for noise_outlet in noise_list:
                 if noise_outlet.lower() == outlet_name.lower():
                     is_noise = True
-            # Debug info removed
                     break
             
             if is_noise:
-            # Debug info removed
                 noise_removed += 1
                 continue
             
@@ -1941,11 +1785,9 @@ class OutletMatcher:
             for noise_outlet in noise_list:
                 if noise_outlet.lower() in outlet_name.lower() or outlet_name.lower() in noise_outlet.lower():
                     is_noise_contains = True
-            # Debug info removed
                     break
             
             if is_noise_contains:
-            # Debug info removed
                 noise_removed += 1
                 continue
             
@@ -1954,7 +1796,6 @@ class OutletMatcher:
                 # Filter out non-finance outlets on pages 2+
                 irrelevant_terms = ['supply chain', 'construction', 'retail', 'marketing', 'advertising', 'search engine', 'seo', 'martech', 'pr daily', 'adweek', 'adage']
                 if any(irrelevant in outlet_name.lower() for irrelevant in irrelevant_terms):
-            # Debug info removed
                     noise_removed += 1
                     continue
             
@@ -1962,7 +1803,6 @@ class OutletMatcher:
                 # Filter out non-security outlets on pages 2+
                 irrelevant_terms = ['retail', 'marketing', 'advertising', 'search engine', 'seo', 'martech', 'pr daily', 'supply chain', 'construction', 'adweek', 'adage', 'makeuseof', 'techdirt']
                 if any(irrelevant in outlet_name.lower() for irrelevant in irrelevant_terms):
-            # Debug info removed
                     noise_removed += 1
                     continue
             
@@ -1970,11 +1810,9 @@ class OutletMatcher:
                 # Filter out non-healthcare outlets on pages 2+
                 irrelevant_terms = ['business insider', 'pr daily', 'marketing', 'advertising', 'search engine', 'seo', 'martech', 'supply chain', 'construction', 'retail', 'adweek', 'adage']
                 if any(irrelevant in outlet_name.lower() for irrelevant in irrelevant_terms):
-            # Debug info removed
                     noise_removed += 1
                     continue
             
-            # Debug info removed
             filtered_outlets.append(outlet_row)
         
         print(f"      Noise filtering results: {len(outlets)} → {len(filtered_outlets)} ({noise_removed} removed)")
@@ -1982,7 +1820,6 @@ class OutletMatcher:
 
     def _apply_hard_audience_filter(self, outlets: List[Dict], selected_audience: str) -> List[Dict]:
         """Apply HARD filter by Audience field - only outlets whose Audience includes the selected audience."""
-            # Debug info removed
         
         filtered_outlets = []
         excluded_count = 0
@@ -2051,11 +1888,6 @@ class OutletMatcher:
         print(f"      Primary requirements: {audience_req['primary']}")
         print(f"      Secondary requirements: {audience_req['secondary']}")
         print(f"      Logic: {audience_req['logic']}")
-        print(f"      🚨 DEBUG: Using logic type: {audience_req['logic']}")
-        if audience_req['logic'] == 'smart_matching':
-            print(f"      🚨 DEBUG: Smart matching will be applied!")
-        else:
-            print(f"      🚨 DEBUG: Using fallback logic!")
         
         # Define keywords for smart matching
         education_keywords = [
@@ -2089,6 +1921,7 @@ class OutletMatcher:
                 'search engine journal', 'martech series', 'itpro', 'pr daily',
                 'modern healthcare', 'healthcare', 'medical', 'health',  # Healthcare outlets
                 'energy central', 'renewable', 'sustainability', 'clean energy',  # Energy outlets
+                'environment+energy leader', 'food processing', 'hubspot blog',  # Specific irrelevant outlets from results
                 'dark reading', 'securityweek', 'hacker news', 'security boulevard', 'threatpost', 'sc magazine', 'cso online', 'security intelligence', 'help net security', 'infosecurity magazine', 'cyber defense magazine',  # Cybersecurity outlets
                 # Technology/IT outlets that are not investment-focused
                 'cio dive', 'infoworld', 'devops', 'devops.com', 'ai time journal', 'techcrunch', 'venturebeat', 'wired', 'the verge', 'ars technica', 'engadget', 'gizmodo', 'mashable', 'the next web', 'recode',  # Tech outlets
@@ -2111,14 +1944,20 @@ class OutletMatcher:
                 # ADD MORE TECHNOLOGY OUTLETS
                 'tech', 'technology', 'software', 'development', 'programming', 'coding', 'github', 'stack overflow',  # General tech outlets
                 # ADD SPECIFIC PROBLEMATIC OUTLETS FROM RESULTS
-                'ai business', 'medium', 'hr dive', 'cloud native now'  # Specific problematic outlets (The Economist is premium investment)
+                'ai business', 'medium', 'hr dive', 'cloud native now',  # Specific problematic outlets
+                # ADD POLITICAL OUTLETS (not investment-focused)
+                'the hill', 'politico', 'roll call', 'washington times', 'real clear politics', 'national review', 'american conservative'  # Political outlets
             ],
             'sustainability & climate leaders': [
                 'makeuseof', 'techdirt', 'retail touchpoints', 'adweek', 'adage',
                 'supply chain dive', 'construction dive', 'search engine land',
                 'search engine journal', 'martech series', 'itpro', 'pr daily',
                 'modern healthcare', 'healthcare', 'medical', 'health',  # Healthcare outlets
-                'fintech', 'banking', 'payments', 'financial'  # Finance outlets
+                'fintech', 'banking', 'payments', 'financial',  # Finance outlets
+                'food processing', 'hubspot blog', 'the hill', 'politico',  # Irrelevant outlets
+                'mother jones', 'national geographic', 'time magazine', 'newsweek', 'us news',  # General interest outlets
+                'retail', 'fashion', 'beauty', 'lifestyle', 'entertainment',  # Non-sustainability outlets
+                'sports', 'gaming', 'travel', 'food', 'restaurant'  # Non-sustainability outlets
             ],
             'cybersecurity experts': [
                 'makeuseof', 'techdirt', 'retail touchpoints', 'adweek', 'adage',
@@ -2141,7 +1980,6 @@ class OutletMatcher:
             outlet_audience = outlet.get('Audience', '')
             
             if not outlet_audience:
-            # Debug info removed
                 excluded_count += 1
                 continue
             
@@ -2150,7 +1988,6 @@ class OutletMatcher:
             is_noise = any(noise_outlet in outlet_name_lower for noise_outlet in noise_list)
             
             if is_noise:
-            # Debug info removed
                 excluded_count += 1
                 continue
             
@@ -2160,7 +1997,6 @@ class OutletMatcher:
             has_secondary = any(secondary in outlet_audience_lower for secondary in audience_req['secondary'])
             
             # DEBUG: Show exactly what's happening for each outlet
-            # Debug info removed
             print(f"         Outlet Audience: '{outlet_audience}'")
             print(f"         Outlet Audience (lower): '{outlet_audience_lower}'")
             print(f"         Primary requirements: {audience_req['primary']}")
@@ -2172,10 +2008,8 @@ class OutletMatcher:
             if audience_req['logic'] == 'must_have_primary':
                 if has_primary:
                     matched_primary = [p for p in audience_req['primary'] if p in outlet_audience_lower]
-            # Debug info removed
                     filtered_outlets.append(outlet)
                 else:
-            # Debug info removed
                     excluded_count += 1
             elif audience_req['logic'] == 'must_have_primary_or_secondary':
                 if has_primary or has_secondary:
@@ -2186,10 +2020,8 @@ class OutletMatcher:
                     if has_secondary:
                         matched_secondary = [s for s in audience_req['secondary'] if s in outlet_audience_lower]
                         matched_terms.extend(matched_secondary)
-            # Debug info removed
                     filtered_outlets.append(outlet)
                 else:
-            # Debug info removed
                     excluded_count += 1
             elif audience_req['logic'] == 'smart_matching':
                 # SMART MATCHING: Check audience tags AND outlet content/name
@@ -2234,10 +2066,8 @@ class OutletMatcher:
                         if has_academic_content:
                             matched_terms.append('academic_content')
                         
-            # Debug info removed
                         filtered_outlets.append(outlet)
                     else:
-            # Debug info removed
                         excluded_count += 1
                 
                 elif selected_audience_lower == 'investors & analysts':
@@ -2281,28 +2111,22 @@ class OutletMatcher:
                         if has_business_content:
                             matched_terms.append('business_content')
                         
-            # Debug info removed
                         filtered_outlets.append(outlet)
                     else:
-            # Debug info removed
                         excluded_count += 1
             else:
                 # Fallback logic
                 if has_primary or has_secondary:
-            # Debug info removed
                     filtered_outlets.append(outlet)
                 else:
-            # Debug info removed
                     excluded_count += 1
         
-            # Debug info removed
         print(f"      Selected audience: {selected_audience}")
         print(f"      Outlets before filter: {len(outlets)}")
         print(f"      Outlets after filter: {len(filtered_outlets)}")
         print(f"      Excluded outlets: {excluded_count}")
         
         # CRITICAL FINAL SAFETY CHECK: Verify that all filtered outlets actually have the right audience
-            # Debug info removed
         verified_outlets = []
         safety_excluded = 0
         
@@ -2326,16 +2150,13 @@ class OutletMatcher:
                         matched_terms.append('policy')
                     if has_academic:
                         matched_terms.append('academic')
-            # Debug info removed
                     verified_outlets.append(outlet)
                 else:
-            # Debug info removed
                     safety_excluded += 1
             else:
                 # For other audiences, use the same logic
                 verified_outlets.append(outlet)
         
-            # Debug info removed
         print(f"      Outlets after safety check: {len(verified_outlets)}")
         print(f"      Safety excluded: {safety_excluded}")
         
@@ -2366,27 +2187,26 @@ class OutletMatcher:
             # Tier 1: Premium Investment Outlets (90-95%)
             if any(premium in outlet_name for premium in ['bloomberg', 'reuters', 'financial times', 'wall street journal', 'wsj', 'cnbc']):
                 relevance_score = 0.90 + (hash(outlet_id) % 6) * 0.01  # Force 90-95% range
-                print(f"    TIER 1 INVESTMENT: {outlet_name} → {relevance_score:.3f}")
             
             # Tier 2: Core Investment Outlets (80-85%)
             elif any(core in outlet_name for core in ['fortune', 'forbes', 'pitchbook', 'institutional investor', 'business insider']):
                 relevance_score = 0.80 + (hash(outlet_id) % 6) * 0.01  # Force 80-85% range
-                print(f"    TIER 2 INVESTMENT: {outlet_name} → {relevance_score:.3f}")
             
             # Tier 3: Business/Finance Outlets (70-75%)
-            elif any(business in outlet_name for business in ['harvard business review', 'fast company', 'inc', 'washington post']):
+            elif any(business in outlet_name for business in ['harvard business review', 'fast company', 'inc']):
                 relevance_score = 0.70 + (hash(outlet_id) % 6) * 0.01  # Force 70-75% range
-                print(f"    TIER 3 BUSINESS: {outlet_name} → {relevance_score:.3f}")
             
             # Tier 4: General Business (60-65%)
             elif any(general in outlet_name for general in ['time', 'the atlantic', 'world economic forum']):
                 relevance_score = 0.60 + (hash(outlet_id) % 6) * 0.01  # Force 60-65% range
-            # Debug info removed
             
             # Fintech outlets should be filtered out for Investors & Analysts, but if they slip through, give them lower scores
             elif any(fintech in outlet_name for fintech in ['fintech magazine', 'american banker', 'payments dive', 'banking dive']):
                 relevance_score = 0.45 + (hash(outlet_id) % 6) * 0.01  # Force 45-50% range (lower priority)
-            # Debug info removed
+            
+            # CRITICAL: Penalize irrelevant outlets heavily (but not for sustainability audience)
+            elif any(irrelevant in outlet_name for irrelevant in ['food processing', 'hubspot blog', 'the hill', 'politico', 'mother jones', 'national geographic', 'time magazine', 'newsweek', 'us news']):
+                relevance_score = 0.20 + (hash(outlet_id) % 5) * 0.01  # Force 20-24% range (should be filtered out)
             
             # EDUCATION-SPECIFIC SCORING
             elif any(edu_term in outlet_name for edu_term in ['edtech', 'education', 'academic', 'university', 'college', 'school']):
@@ -2402,14 +2222,22 @@ class OutletMatcher:
                 print(f"    EDUCATION: {outlet_name} → {relevance_score:.3f}")
             
             # SUSTAINABILITY-SPECIFIC SCORING
-            elif any(sustainability_term in outlet_name for sustainability_term in ['sustainability', 'climate', 'environmental', 'renewable', 'clean energy', 'green']):
-                # Premium sustainability outlets (88-92%)
-                if any(premium in outlet_name for premium in ['canary media', 'inside climate news', 'climate central', 'greenbiz']):
-                    relevance_score = 0.88 + (hash(outlet_id) % 6) * 0.01  # Force 88-92% range
-                # General sustainability (80-85%)
-                else:
+            elif any(sustainability_term in outlet_name for sustainability_term in ['sustainability', 'climate', 'environmental', 'renewable', 'clean energy', 'green', 'carbon', 'emissions', 'esg', 'trellis', 'factor this', 'renewable energy world', 'energy', 'environment', 'conservation', 'biodiversity', 'circular economy', 'net zero']):
+                # Tier 1: Premium Sustainability Outlets (90-95%)
+                if any(premium in outlet_name for premium in ['canary media', 'inside climate news', 'climate central', 'greenbiz', 'trellis', 'sustainable brands', 'environmental leader', 'environment+energy leader']):
+                    relevance_score = 0.90 + (hash(outlet_id) % 6) * 0.01  # Force 90-95% range
+                
+                # Tier 2: Core Sustainability Outlets (85-90%)
+                elif any(core in outlet_name for core in ['triple pundit', 'cleantechnica', 'renewable energy world', 'factor this', 'energy central', 'green tech media', 'solar power world', 'wind power engineering']):
+                    relevance_score = 0.85 + (hash(outlet_id) % 6) * 0.01  # Force 85-90% range
+                
+                # Tier 3: General Sustainability (80-85%)
+                elif any(general in outlet_name for general in ['solar power world', 'wind power engineering', 'clean energy', 'renewable energy', 'climate tech', 'green energy']):
                     relevance_score = 0.80 + (hash(outlet_id) % 6) * 0.01  # Force 80-85% range
-            # Debug info removed
+                
+                # Tier 4: Broader Environmental (75-80%)
+                else:
+                    relevance_score = 0.75 + (hash(outlet_id) % 6) * 0.01  # Force 75-80% range
             
             # CYBERSECURITY-SPECIFIC SCORING
             elif any(cyber_term in outlet_name for cyber_term in ['cybersecurity', 'security', 'cyber', 'infosec', 'ciso']):
@@ -2422,22 +2250,20 @@ class OutletMatcher:
                 # General cybersecurity (75-80%)
                 else:
                     relevance_score = 0.75 + (hash(outlet_id) % 6) * 0.01  # Force 75-80% range
-            # Debug info removed
             
-            # DEFAULT SCORING (fallback)
+            # DEFAULT SCORING (fallback) - More generous
             else:
                 # Apply base boost and ensure differentiation
                 if relevance_score > 0.05:
-                    relevance_score = relevance_score * 8.0  # Moderate boost
+                    relevance_score = relevance_score * 12.0  # Higher boost
                 elif relevance_score > 0.03:
-                    relevance_score = relevance_score * 6.0  # Lower boost
+                    relevance_score = relevance_score * 10.0  # Higher boost
                 else:
-                    relevance_score = relevance_score * 4.0  # Minimal boost
+                    relevance_score = relevance_score * 8.0  # Higher boost
                 
                 # Add outlet-specific variation
-                relevance_score = relevance_score + (hash(outlet_id) % 10) * 0.01
+                relevance_score = relevance_score + (hash(outlet_id) % 15) * 0.01
                 relevance_score = max(0.0, min(1.0, relevance_score))
-            # Debug info removed
             
             # Ensure final score is between 0.0 and 1.0
             relevance_score = max(0.0, min(1.0, relevance_score))
@@ -2445,7 +2271,6 @@ class OutletMatcher:
             return relevance_score
             
         except Exception as e:
-            # Debug info removed
             pass
             return 0.0
 
@@ -2456,14 +2281,32 @@ class OutletMatcher:
         # CRITICAL FIX: Enforce maximum 2 pages (10 outlets)
         max_outlets = min(limit, 10)  # Maximum 10 outlets (2 pages of 5 each)
         
-        if len(scored_rows) <= max_outlets:
-            return scored_rows[:max_outlets]
+        # CRITICAL: Filter out low-quality matches before diversity filtering
+        high_quality_rows = []
+        for row in scored_rows:
+            relevance_score = row.get('relevance_score', 0)
+            outlet_name = row.get('outlet', {}).get('Outlet Name', '').lower()
+            
+            # More flexible threshold for sustainability outlets, but still quality-focused
+            min_threshold = 0.35
+            if any(sustainability_term in outlet_name for sustainability_term in ['sustainability', 'climate', 'environmental', 'renewable', 'clean energy', 'green', 'carbon', 'emissions', 'esg', 'trellis', 'factor this', 'renewable energy world']):
+                min_threshold = 0.30  # Moderate threshold for sustainability outlets
+            
+            if relevance_score >= min_threshold:
+                high_quality_rows.append(row)
+            else:
+                print(f"      🚫 Filtered out low-quality match: {row.get('outlet', {}).get('Outlet Name', 'Unknown')} ({relevance_score:.1%})")
+        
+        print(f"      🎯 Quality filtering: {len(scored_rows)} → {len(high_quality_rows)} high-quality outlets")
+        
+        if len(high_quality_rows) <= max_outlets:
+            return high_quality_rows[:max_outlets]
         
         # Take top outlets without aggressive diversity filtering
         # This ensures we get the highest-scoring outlets first
-        diverse_rows = scored_rows[:max_outlets]
+        diverse_rows = high_quality_rows[:max_outlets]
         
-        print(f"      🎨 Diversity filtering results: {len(scored_rows)} → {len(diverse_rows)} outlets (max {max_outlets})")
+        print(f"      🎨 Diversity filtering results: {len(high_quality_rows)} → {len(diverse_rows)} outlets (max {max_outlets})")
         print(f"      📄 Page limiting: Maximum 2 pages ({max_outlets} outlets) enforced")
         
         return diverse_rows
