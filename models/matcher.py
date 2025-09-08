@@ -8,23 +8,73 @@ from collections import Counter
 import math
 
 class OutletMatcher:
-    """WriteFor.co Matching Logic v2 - Hard vertical filtering with explainable scoring."""
+    """WriteFor.co Matching Logic v3 - Audience-first matching with fallback expansion."""
     
-    # Configuration constants - More permissive for sustainability
-    TOPIC_SIMILARITY_THRESHOLD = 0.05  # Lowered to allow more sustainability outlets
-    TOTAL_SCORE_THRESHOLD = 0.30       # Lowered to allow more outlets through
-    MIN_SCORE_THRESHOLD = 0.30         # Updated to match total threshold
+    # Audience configuration with fallback keywords and deny lists
+    AUDIENCE_RULES = {
+        "Business Executives": {
+            "fallback_keywords": ["CEO", "executive", "leadership", "strategy", "growth", "corporate", "business", "management", "C-suite", "CFO", "CTO", "COO", "board", "director", "president", "vice president", "senior", "chief", "officer"],
+            "deny_outlets": ["SC Magazine", "SecurityWeek", "Security Boulevard"]
+        },
+        "Tech Professionals": {
+            "fallback_keywords": ["developer", "software", "engineering", "cloud", "AI tools", "low-code", "DevOps", "tech", "technology", "IT", "programming", "coding", "system", "platform", "digital", "innovation", "automation", "data", "analytics"],
+            "deny_outlets": ["Adweek", "PRWeek", "Marketing Dive"]
+        },
+        "Cybersecurity Experts": {
+            "fallback_keywords": ["cybersecurity", "CISO", "ransomware", "phishing", "zero trust", "threat intelligence", "security", "cyber", "malware", "vulnerability", "breach", "firewall", "encryption", "compliance", "risk", "threat", "incident", "SOC"],
+            "deny_outlets": ["Adweek", "Retail Dive", "Boston Globe"]
+        },
+        "Startup Founders & Entrepreneurs": {
+            "fallback_keywords": ["startup", "founder", "entrepreneur", "venture", "fundraising", "seed round", "innovation", "disruption", "scale", "growth", "pitch", "investor", "accelerator", "incubator", "equity", "valuation", "IPO", "exit"],
+            "deny_outlets": ["SC Magazine", "SecurityWeek", "Dark Reading"]
+        },
+        "Marketing & PR Professionals": {
+            "fallback_keywords": ["marketing", "PR", "communications", "brand", "visibility", "earned media", "advertising", "campaign", "social media", "content", "digital", "strategy", "audience", "engagement", "conversion", "ROI", "analytics"],
+            "deny_outlets": ["SC Magazine", "SecurityWeek", "Dark Reading"]
+        },
+        "Investors & Analysts": {
+            "fallback_keywords": ["venture capital", "private equity", "IPO", "markets", "funding", "investment", "investors", "analysts", "financial", "equity", "capital", "bloomberg", "reuters", "wsj", "fortune", "forbes", "cnbc"],
+            "deny_outlets": ["SC Magazine", "SecurityWeek", "PR Daily", "FinTech Magazine", "Search Engine Journal", "Search Engine Land", "HIT Consultant", "MedCity News", "Energy Central", "Healthcare IT News", "Modern Healthcare", "Quantum Insider", "TechCrunch", "VentureBeat"]
+        },
+        "Healthcare & Health Tech Leaders": {
+            "fallback_keywords": ["healthcare", "hospital", "medical", "patient", "clinical", "HIPAA", "health tech", "health", "medicine", "pharmaceutical", "biotech", "telemedicine", "digital health", "wellness", "treatment", "diagnosis", "therapy", "nursing", "physician"],
+            "deny_outlets": ["Adweek", "Retail Dive", "TechDirt"]
+        },
+        "Education & Policy Leaders": {
+            "fallback_keywords": ["education", "policy", "school", "university", "student", "teacher", "privacy", "equity", "academic", "learning", "teaching", "curriculum", "pedagogy", "edtech", "online learning", "higher education", "K-12", "college", "research", "scholarship"],
+            "deny_outlets": ["Energy Central", "Utility Dive", "Food Processing"]
+        },
+        "Sustainability & Climate Leaders": {
+            "fallback_keywords": ["sustainability", "climate", "carbon", "renewable", "energy", "EV", "batteries", "DLE", "decarbonization", "green", "environmental", "clean energy", "solar", "wind", "emissions", "net zero", "esg"],
+            "deny_outlets": ["SC Magazine", "SecurityWeek", "Adweek", "Food Processing", "Supply Chain Management Review", "TechRadar", "ITPro", "Dark Reading", "MakeUseOf", "TechDirt", "Narratively", "Built In", "IEEE Software"]
+        },
+        "Real Estate & Built Environment": {
+            "fallback_keywords": ["real estate", "property", "construction", "proptech", "buildings", "commercial real estate", "infrastructure", "housing", "development", "architecture", "urban planning", "smart buildings", "facilities", "property management", "leasing", "mortgage", "REIT"],
+            "deny_outlets": ["SC Magazine", "SecurityWeek", "Adweek"]
+        },
+        "Finance & Fintech Leaders": {
+            "fallback_keywords": ["finance", "banking", "fintech", "payments", "crypto", "regulation", "ecommerce", "financial", "investment", "trading", "wealth", "insurance", "lending", "credit", "debit", "blockchain", "digital currency", "robo-advisor"],
+            "deny_outlets": ["SC Magazine", "SecurityWeek", "Dark Reading"]
+        },
+        "General Public": {
+            "fallback_keywords": ["consumer", "lifestyle", "daily life", "public", "general audience", "technology adoption", "user", "customer", "people", "society", "community", "family", "home", "personal", "everyday", "mainstream", "popular"],
+            "deny_outlets": ["SC Magazine", "Dark Reading", "Adweek"]
+        }
+    }
     
-    # NEW: More permissive cutoff for pages 2+ to show more outlets
-    PAGE_1_STRICT_THRESHOLD = 0.50    # Page 1: Allow 50%+ scores
-    PAGE_2_PLUS_STRICT_THRESHOLD = 0.40  # Pages 2+: Require 40%+ scores + category filtering
+    # Scoring weights per v3 specification
+    AUDIENCE_FIT_WEIGHT = 0.45        # 45% - Audience alignment
+    TOPIC_SIMILARITY_WEIGHT = 0.30    # 30% - Topic similarity
+    KEYWORD_OVERLAP_WEIGHT = 0.15     # 15% - Keyword overlap
+    CONTRIB_FRIENDLY_WEIGHT = 0.05    # 5% - Contributed content acceptance
+    EDITORIAL_PRIOR_WEIGHT = 0.05     # 5% - Editorial priority
     
-    # Scoring weights per v2 specification
-    VERTICAL_MATCH_WEIGHT = 0.55       # 55% - Vertical alignment
-    TOPIC_SIMILARITY_WEIGHT = 0.25     # 25% - Topic similarity
-    KEYWORD_OVERLAP_WEIGHT = 0.10      # 10% - Keyword overlap
-    AI_PARTNERSHIP_WEIGHT = 0.05       # 5% - AI partnership status
-    CONTENT_ACCEPTANCE_WEIGHT = 0.05   # 5% - Contributed content acceptance
+    # Fallback and penalty constants
+    FALLBACK_PENALTY = -0.10          # Reduced penalty for fallback outlets
+    DENY_PENALTY = -0.50              # Penalty for denied outlets
+    MIN_RESULTS = 8                   # Always return at least 8 results
+    MIN_FALLBACK_SCORE = 0.30         # Flexible minimum score for fallback results
+    
     
     # Milestone 6 Configuration
     WELLNESS_TERMS = [
@@ -283,7 +333,7 @@ class OutletMatcher:
     def __init__(self, supabase_client: Client):
         """Initialize the outlet matcher with v2 configuration."""
         self.supabase = supabase_client
-        print("🔄 OutletMatcher initialized with updated sustainability scoring - More permissive thresholds")
+        print("🔄 OutletMatcher v3 initialized - Audience-first matching with fallback expansion")
         self._vectorizer = TfidfVectorizer(
             stop_words='english', 
             ngram_range=(1, 3), 
@@ -1271,24 +1321,15 @@ class OutletMatcher:
         else:
             return 0.0  # Vertical mismatch
 
-    def _calculate_topic_similarity(self, abstract: str, outlet_id: str) -> float:
+    def _calculate_topic_similarity(self, abstract: str, outlet_id: str, industry: str = None) -> float:
         """Calculate topic similarity between abstract and outlet content."""
         try:
             outlet_text = self._outlet_texts.get(outlet_id, '')
             if not outlet_text:
                 return 0.0
             
-            # Extract key cybersecurity terms from abstract
-            cybersecurity_terms = ['cyber', 'security', 'threat', 'attack', 'defense', 'breach', 'vulnerability', 'malware', 'phishing', 'ransomware', 'ai', 'artificial intelligence', 'financial', 'bank', 'fintech']
-            
             abstract_lower = abstract.lower()
             outlet_lower = outlet_text.lower()
-            
-            # Check for cybersecurity term matches
-            term_matches = 0
-            for term in cybersecurity_terms:
-                if term in abstract_lower and term in outlet_lower:
-                    term_matches += 1
             
             # Calculate base similarity using word overlap
             abstract_words = set(abstract_lower.split())
@@ -1303,24 +1344,29 @@ class OutletMatcher:
             else:
                 base_similarity = intersection / union
             
-            # Boost similarity for cybersecurity outlets
+            # Get industry-specific terms for boosting
+            industry_terms = self._get_industry_terms(industry) if industry else []
+            
+            # Check for industry-specific term matches
+            term_matches = 0
+            for term in industry_terms:
+                if term in abstract_lower and term in outlet_lower:
+                    term_matches += 1
+            
+            # Boost similarity for industry-specific terms
             if term_matches > 0:
-                boosted_similarity = base_similarity + (term_matches * 0.04)  # Boost by 4% per term match
+                boosted_similarity = base_similarity + (term_matches * 0.05)  # Boost by 5% per term match
                 boosted_similarity = min(0.9, boosted_similarity)  # Cap at 90%
             else:
                 boosted_similarity = base_similarity
             
-            # Additional boost for cybersecurity-specific terms
-            if any(term in abstract_lower for term in ['cyber', 'security', 'threat', 'breach']):
-                boosted_similarity = boosted_similarity * 1.3  # 30% boost for core security terms
+            # Additional boost for core industry terms
+            if industry and any(term in abstract_lower for term in industry_terms[:5]):  # Top 5 terms
+                boosted_similarity = boosted_similarity * 1.2  # 20% boost for core terms
             
-            # Penalize non-cybersecurity outlets
-            if any(non_cyber in outlet_lower for non_cyber in ['healthcare', 'cloud computing', 'tech', 'it news', 'business', 'marketing']):
-                boosted_similarity = boosted_similarity * 0.6  # 40% penalty for non-cybersecurity focus
-            
-            # Ensure minimum similarity for cybersecurity outlets
-            if boosted_similarity < 0.05:
-                boosted_similarity = 0.05  # Minimum for cybersecurity content
+            # Ensure minimum similarity
+            if boosted_similarity < 0.1:
+                boosted_similarity = 0.1  # Higher minimum base similarity
             
             # Debug logging
             print(f"      Base similarity: {base_similarity:.3f}, Term matches: {term_matches}")
@@ -1333,22 +1379,22 @@ class OutletMatcher:
             pass
             return 0.0
 
-    def _calculate_keyword_overlap(self, abstract: str, outlet_id: str) -> float:
+    def _calculate_keyword_overlap(self, abstract: str, outlet_id: str, industry: str = None) -> float:
         """Calculate keyword overlap between abstract and outlet keywords."""
         try:
             outlet_keywords = self._outlet_keywords.get(outlet_id, [])
             if not outlet_keywords:
                 return 0.05  # Return minimum score instead of 0
             
-            # Extract key cybersecurity terms from abstract
-            cybersecurity_terms = ['cyber', 'security', 'threat', 'attack', 'defense', 'breach', 'vulnerability', 'malware', 'phishing', 'ransomware', 'ai', 'artificial intelligence', 'financial', 'bank', 'fintech']
-            
             abstract_lower = abstract.lower()
             outlet_keyword_set = set(keyword.lower() for keyword in outlet_keywords)
             
-            # Check for cybersecurity term matches
+            # Get industry-specific terms for boosting
+            industry_terms = self._get_industry_terms(industry) if industry else []
+            
+            # Check for industry-specific term matches
             term_matches = 0
-            for term in cybersecurity_terms:
+            for term in industry_terms:
                 if term in abstract_lower and term in outlet_keyword_set:
                     term_matches += 1
             
@@ -1362,30 +1408,61 @@ class OutletMatcher:
             else:
                 base_overlap = intersection / total_keywords
             
-            # Boost overlap for cybersecurity outlets
+            # Boost overlap for industry-specific terms
             if term_matches > 0:
-                boosted_overlap = base_overlap + (term_matches * 0.08)  # Boost by 8% per term match
+                boosted_overlap = base_overlap + (term_matches * 0.1)  # Boost by 10% per term match
                 boosted_overlap = min(0.8, boosted_overlap)  # Cap at 80%
             else:
                 boosted_overlap = base_overlap
             
-            # Penalize non-cybersecurity outlets
-            outlet_text = self._outlet_texts.get(outlet_id, '')
-            outlet_lower = outlet_text.lower()
-            if any(non_cyber in outlet_lower for non_cyber in ['healthcare', 'cloud computing', 'tech', 'it news', 'business', 'marketing']):
-                boosted_overlap = boosted_overlap * 0.5  # 50% penalty for non-cybersecurity focus
+            # Ensure minimum overlap
+            if boosted_overlap < 0.1:
+                boosted_overlap = 0.1  # Higher minimum base overlap
             
             # Debug logging
             print(f"      Base overlap: {base_overlap:.3f}, Term matches: {term_matches}")
             print(f"      Abstract words: {len(abstract_words)}, Outlet keywords: {total_keywords}")
             print(f"      Intersection: {intersection}")
             
-            # Ensure minimum score
-            return max(0.02, boosted_overlap)
+            return boosted_overlap
             
         except Exception as e:
             pass
             return 0.05  # Return minimum score
+
+    def _get_industry_terms(self, industry: str) -> List[str]:
+        """Get industry-specific terms for scoring boosts."""
+        if not industry:
+            return []
+        
+        industry_lower = industry.lower()
+        
+        if 'education' in industry_lower or 'policy' in industry_lower:
+            return ['education', 'policy', 'school', 'university', 'student', 'teacher', 'academic', 'learning', 'teaching', 'curriculum', 'pedagogy', 'edtech', 'online learning', 'higher education', 'k-12', 'college', 'research', 'scholarship', 'privacy', 'equity']
+        elif 'sustainability' in industry_lower or 'climate' in industry_lower:
+            return ['sustainability', 'climate', 'carbon', 'renewable', 'energy', 'ev', 'batteries', 'dle', 'decarbonization', 'green', 'environmental', 'clean energy', 'solar', 'wind', 'emissions', 'net zero', 'esg']
+        elif 'healthcare' in industry_lower or 'health' in industry_lower:
+            return ['healthcare', 'hospital', 'medical', 'patient', 'clinical', 'hipaa', 'health tech', 'health', 'medicine', 'pharmaceutical', 'biotech', 'telemedicine', 'digital health', 'wellness', 'treatment', 'diagnosis', 'therapy', 'nursing', 'physician']
+        elif 'investors' in industry_lower or 'analysts' in industry_lower:
+            return ['investment', 'investors', 'funding', 'venture', 'capital', 'markets', 'financial', 'ipo', 'equity', 'analysts', 'bloomberg', 'reuters', 'wsj', 'fortune', 'forbes', 'cnbc', 'private equity', 'hedge fund', 'asset management']
+        elif 'tech' in industry_lower:
+            return ['tech', 'technology', 'software', 'developer', 'engineering', 'cloud', 'ai', 'artificial intelligence', 'programming', 'coding', 'system', 'platform', 'digital', 'innovation', 'automation', 'data', 'analytics']
+        elif 'cybersecurity' in industry_lower or 'security' in industry_lower:
+            return ['cybersecurity', 'security', 'cyber', 'threat', 'attack', 'defense', 'breach', 'vulnerability', 'malware', 'phishing', 'ransomware', 'ciso', 'zero trust', 'threat intelligence', 'soc']
+        elif 'business' in industry_lower or 'executives' in industry_lower:
+            return ['business', 'executive', 'leadership', 'strategy', 'growth', 'corporate', 'management', 'c-suite', 'cfo', 'cto', 'coo', 'board', 'director', 'president', 'ceo']
+        elif 'startup' in industry_lower or 'entrepreneur' in industry_lower:
+            return ['startup', 'founder', 'entrepreneur', 'venture', 'fundraising', 'seed round', 'innovation', 'disruption', 'scale', 'growth', 'pitch', 'investor', 'accelerator', 'incubator']
+        elif 'marketing' in industry_lower or 'pr' in industry_lower:
+            return ['marketing', 'pr', 'communications', 'brand', 'visibility', 'earned media', 'advertising', 'campaign', 'social media', 'content', 'digital', 'strategy', 'audience', 'engagement']
+        elif 'real estate' in industry_lower:
+            return ['real estate', 'property', 'construction', 'proptech', 'buildings', 'commercial real estate', 'infrastructure', 'housing', 'development', 'architecture', 'urban planning']
+        elif 'finance' in industry_lower or 'fintech' in industry_lower:
+            return ['finance', 'banking', 'fintech', 'payments', 'crypto', 'regulation', 'ecommerce', 'financial', 'investment', 'trading', 'wealth', 'insurance', 'lending', 'credit']
+        elif 'general' in industry_lower or 'public' in industry_lower:
+            return ['consumer', 'lifestyle', 'daily life', 'public', 'general audience', 'technology adoption', 'user', 'customer', 'people', 'society', 'community', 'family', 'home']
+        else:
+            return []
 
     def _calculate_ai_partnership_score(self, outlet_id: str) -> float:
         """Calculate AI partnership score based on outlet characteristics."""
@@ -1477,9 +1554,10 @@ class OutletMatcher:
         return explanation
 
     def find_matches(self, abstract: str, industry: str, limit: int = 20, debug_mode: bool = False) -> List[Dict]:
-        """Find matching outlets using AUDIENCE-FIRST filtering with topic/keyword relevance scoring."""
+        """Find matching outlets using v3 audience-first matching with fallback expansion."""
         try:
             print("=" * 70)
+            print(f"🎯 V3 MATCHING: {industry}")
             
             # Get all outlets
             all_outlets = self.get_outlets()
@@ -1487,91 +1565,557 @@ class OutletMatcher:
                 print("❌ No outlets found in database")
                 return []
             
+            # STEP 1: CANDIDATE SELECTION
+            print(f"📋 STEP 1: Candidate selection for {industry}")
+            primary_candidates, fallback_candidates = self._select_candidates(all_outlets, abstract, industry)
             
-            # STEP 1: HARD FILTER BY AUDIENCE FIELD FIRST
-            audience_filtered_outlets = self._apply_hard_audience_filter(all_outlets, industry)
+            # STEP 2: SCORING
+            print(f"📊 STEP 2: Computing scores")
+            scored_results = []
             
-            if not audience_filtered_outlets:
-                print("❌ No outlets found after audience filtering")
-                return []
-            
-            
-            # STEP 2: COMPUTE TOPIC/KEYWORD RELEVANCE SCORING
-            scored_rows = []
-            
-            for outlet in audience_filtered_outlets:
-                outlet_id = outlet.get('id', outlet.get('Outlet Name', ''))
-                outlet_name = outlet.get('Outlet Name', 'Unknown')
-                
-                if outlet_id not in self._outlet_texts:
-                    continue
-                
-                # Compute topic/keyword relevance score (0.0 to 1.0)
-                relevance_score = self._compute_audience_relevance_score(abstract, outlet_id, outlet)
-                
-                
-                scored_rows.append({
+            # Score primary candidates (audience matches)
+            for outlet in primary_candidates:
+                score = self._compute_v3_score(abstract, outlet, industry, is_fallback=False)
+                scored_results.append({
                     'outlet': outlet,
-                    'outlet_id': outlet_id,
-                    'relevance_score': relevance_score
+                    'score': score,
+                    'is_fallback': False
                 })
             
-            # STEP 3: SORT BY RELEVANCE SCORE (highest first)
-            scored_rows.sort(key=lambda r: r['relevance_score'], reverse=True)
+            # Score fallback candidates if needed
+            if len(scored_results) < self.MIN_RESULTS:
+                print(f"🔄 Expanding to fallback candidates ({len(fallback_candidates)} available)")
+                fallback_added = 0
+                
+                # Get audience-specific minimum threshold
+                min_threshold = self._get_audience_min_threshold(industry)
+                
+                for outlet in fallback_candidates:
+                    score = self._compute_v3_score(abstract, outlet, industry, is_fallback=True)
+                    print(f"   🔄 Fallback score: {score:.3f} (min required: {min_threshold})")
+                    if score >= min_threshold:  # Use audience-specific minimum
+                        scored_results.append({
+                            'outlet': outlet,
+                            'score': score,
+                            'is_fallback': True
+                        })
+                        fallback_added += 1
+                print(f"   📊 Added {fallback_added} fallback candidates")
+            else:
+                print(f"✅ Sufficient primary candidates ({len(scored_results)}), skipping fallback")
             
-            # STEP 4: APPLY DIVERSITY FILTERING (prevent clustering)
-            print(f"🎨 STEP 4: Applying diversity filtering to prevent outlet clustering...")
-            diverse_rows = self._apply_diversity_filtering(scored_rows, limit)
+            # STEP 3: POST-PROCESSING
+            print(f"🔧 STEP 3: Post-processing")
             
-            # STEP 5: BUILD FINAL MATCHES
-            print(f"🏗️ STEP 5: Building final matches...")
+            # Normalize and cap scores at 100%
+            for result in scored_results:
+                result['score'] = min(1.0, max(0.0, result['score']))
+            
+            # Sort deterministically (score DESC, outlet_id ASC)
+            scored_results.sort(key=lambda x: (-x['score'], x['outlet'].get('id', x['outlet'].get('Outlet Name', ''))))
+            
+            # Take top results
+            final_results = scored_results[:limit]
+            
+            # STEP 4: BUILD FINAL MATCHES
+            print(f"🏗️ STEP 4: Building final matches")
             matches = []
             
-            for i, row in enumerate(diverse_rows):
-                outlet = row['outlet']
-                relevance_score = row['relevance_score']
+            for result in final_results:
+                outlet = result['outlet']
+                score = result['score']
+                is_fallback = result['is_fallback']
                 
                 # Generate explain object
-                explain = self._generate_audience_explain_object(outlet, industry, relevance_score)
-                
-                # Generate match explanation
-                match_explanation = self._generate_audience_match_explanation(outlet, industry, relevance_score, abstract)
+                explain = self._generate_v3_explain_object(outlet, industry, score, is_fallback)
                 
                 # Calculate confidence percentage
-                confidence_score = min(100, max(0, round(relevance_score * 100)))
+                confidence_score = min(100, max(0, round(score * 100)))
                 confidence = f"{confidence_score}%"
                 
-                result = {
+                match_result = {
                     "outlet": outlet,
-                    "score": self._ensure_json_serializable(round(relevance_score, 3)),
+                    "score": self._ensure_json_serializable(round(score, 3)),
                     "match_confidence": confidence,
                     "explain": explain,
-                    "match_explanation": match_explanation
+                    "match_explanation": f"Audience: {industry} | Score: {confidence}"
                 }
                 
                 if debug_mode:
-                    result["debug_components"] = {
-                        "audience_match": True,
-                        "relevance_score": round(relevance_score, 3),
+                    match_result["debug_components"] = {
+                        "audience_match": not is_fallback,
+                        "is_fallback": is_fallback,
+                        "total_score": round(score, 3),
                         "outlet_audience": outlet.get('Audience', 'Unknown')
                     }
                 
-                matches.append(result)
+                matches.append(match_result)
             
             print(f"   Selected audience: {industry}")
             print(f"   Total outlets: {len(all_outlets)}")
-            print(f"   Audience-filtered outlets: {len(audience_filtered_outlets)}")
+            print(f"   Primary candidates: {len(primary_candidates)}")
+            print(f"   Fallback candidates: {len(fallback_candidates)}")
             print(f"   Final matches: {len(matches)}")
             if matches:
-                print(f"   Relevance score range: {matches[-1]['score']:.3f} - {matches[0]['score']:.3f}")
+                print(f"   Score range: {matches[-1]['score']:.3f} - {matches[0]['score']:.3f}")
             
             return matches
             
         except Exception as e:
-            pass
+            print(f"❌ Error in find_matches: {str(e)}")
             import traceback
             traceback.print_exc()
             return []
+
+    def _select_candidates(self, all_outlets: List[Dict], abstract: str, industry: str) -> Tuple[List[Dict], List[Dict]]:
+        """Select primary and fallback candidates based on audience rules."""
+        # Get audience rules
+        audience_rules = self.AUDIENCE_RULES.get(industry, {})
+        fallback_keywords = audience_rules.get('fallback_keywords', [])
+        deny_outlets = audience_rules.get('deny_outlets', [])
+        
+        print(f"   🔍 DEBUG: Looking for audience '{industry}'")
+        print(f"   🔍 DEBUG: Available audiences in rules: {list(self.AUDIENCE_RULES.keys())}")
+        print(f"   🔍 DEBUG: Fallback keywords: {fallback_keywords}")
+        print(f"   🔍 DEBUG: Deny outlets: {deny_outlets}")
+        
+        # Handle case variations in audience names and map database audiences
+        industry_lower = industry.lower()
+        
+        # Map database audience terms to our audience categories
+        audience_mapping = {
+            # Investors & Analysts
+            'investors': 'Investors & Analysts',
+            'financial executives': 'Investors & Analysts',
+            'financial': 'Investors & Analysts',
+            'investment': 'Investors & Analysts',
+            'analysts': 'Investors & Analysts',
+            'venture capital': 'Investors & Analysts',
+            'private equity': 'Investors & Analysts',
+            'hedge fund': 'Investors & Analysts',
+            'asset management': 'Investors & Analysts',
+            'wealth management': 'Investors & Analysts',
+            
+            # Business Executives
+            'corporate strategists': 'Business Executives',
+            'c-suite executives': 'Business Executives',
+            'c-suite execs': 'Business Executives',
+            'business strategists': 'Business Executives',
+            'executives': 'Business Executives',
+            'ceo': 'Business Executives',
+            'cfo': 'Business Executives',
+            'cto': 'Business Executives',
+            'leadership': 'Business Executives',
+            'corporate': 'Business Executives',
+            
+            # Startup Founders & Entrepreneurs
+            'startup founders': 'Startup Founders & Entrepreneurs',
+            'entrepreneurs': 'Startup Founders & Entrepreneurs',
+            'small business owners': 'Startup Founders & Entrepreneurs',
+            'founders': 'Startup Founders & Entrepreneurs',
+            'startup': 'Startup Founders & Entrepreneurs',
+            'entrepreneur': 'Startup Founders & Entrepreneurs',
+            
+            # Cybersecurity Experts
+            'cisos': 'Cybersecurity Experts',
+            'security analysts': 'Cybersecurity Experts',
+            'cybersecurity professionals': 'Cybersecurity Experts',
+            'cybersecurity pros': 'Cybersecurity Experts',
+            'security': 'Cybersecurity Experts',
+            'cybersecurity': 'Cybersecurity Experts',
+            'ciso': 'Cybersecurity Experts',
+            'security professionals': 'Cybersecurity Experts',
+            
+            # Tech Professionals
+            'it managers': 'Tech Professionals',
+            'tech-savvy consumers': 'Tech Professionals',
+            'digital professionals': 'Tech Professionals',
+            'tech': 'Tech Professionals',
+            'technology': 'Tech Professionals',
+            'it': 'Tech Professionals',
+            'software': 'Tech Professionals',
+            'developers': 'Tech Professionals',
+            'engineers': 'Tech Professionals',
+            'tech professionals': 'Tech Professionals',
+            
+            # Marketing & PR Professionals
+            'marketers': 'Marketing & PR Professionals',
+            'digital marketers': 'Marketing & PR Professionals',
+            'content marketers': 'Marketing & PR Professionals',
+            'sales teams': 'Marketing & PR Professionals',
+            'growth hackers': 'Marketing & PR Professionals',
+            'marketing': 'Marketing & PR Professionals',
+            'pr': 'Marketing & PR Professionals',
+            'communications': 'Marketing & PR Professionals',
+            'brand': 'Marketing & PR Professionals',
+            
+            # Healthcare & Health Tech Leaders
+            'healthcare': 'Healthcare & Health Tech Leaders',
+            'health tech': 'Healthcare & Health Tech Leaders',
+            'medical': 'Healthcare & Health Tech Leaders',
+            'health': 'Healthcare & Health Tech Leaders',
+            'hospital': 'Healthcare & Health Tech Leaders',
+            'clinical': 'Healthcare & Health Tech Leaders',
+            'patient': 'Healthcare & Health Tech Leaders',
+            'hipaa': 'Healthcare & Health Tech Leaders',
+            
+            # Education & Policy Leaders
+            'education': 'Education & Policy Leaders',
+            'policy': 'Education & Policy Leaders',
+            'school': 'Education & Policy Leaders',
+            'university': 'Education & Policy Leaders',
+            'student': 'Education & Policy Leaders',
+            'teacher': 'Education & Policy Leaders',
+            'academic': 'Education & Policy Leaders',
+            'edtech': 'Education & Policy Leaders',
+            
+            # Sustainability & Climate Leaders
+            'sustainability': 'Sustainability & Climate Leaders',
+            'climate': 'Sustainability & Climate Leaders',
+            'environmental': 'Sustainability & Climate Leaders',
+            'green': 'Sustainability & Climate Leaders',
+            'renewable': 'Sustainability & Climate Leaders',
+            'energy': 'Sustainability & Climate Leaders',
+            'carbon': 'Sustainability & Climate Leaders',
+            'esg': 'Sustainability & Climate Leaders',
+            
+            # Real Estate & Built Environment
+            'real estate': 'Real Estate & Built Environment',
+            'property': 'Real Estate & Built Environment',
+            'construction': 'Real Estate & Built Environment',
+            'proptech': 'Real Estate & Built Environment',
+            'buildings': 'Real Estate & Built Environment',
+            'infrastructure': 'Real Estate & Built Environment',
+            
+            # Finance & Fintech Leaders
+            'finance': 'Finance & Fintech Leaders',
+            'fintech': 'Finance & Fintech Leaders',
+            'banking': 'Finance & Fintech Leaders',
+            'payments': 'Finance & Fintech Leaders',
+            'crypto': 'Finance & Fintech Leaders',
+            'regulation': 'Finance & Fintech Leaders',
+            'ecommerce': 'Finance & Fintech Leaders',
+            
+            # General Public
+            'general public': 'General Public',
+            'consumer': 'General Public',
+            'lifestyle': 'General Public',
+            'public': 'General Public',
+            'general': 'General Public'
+        }
+        
+        if industry_lower not in [aud.lower() for aud in self.AUDIENCE_RULES.keys()]:
+            print(f"   ⚠️ WARNING: Audience '{industry}' not found in rules!")
+            # Try to find a close match using mapping
+            for db_term, rule_audience in audience_mapping.items():
+                if db_term in industry_lower or industry_lower in db_term:
+                    print(f"   🔄 Using mapped audience: '{rule_audience}' (from '{db_term}')")
+                    industry = rule_audience
+                    audience_rules = self.AUDIENCE_RULES[industry]
+                    fallback_keywords = audience_rules.get('fallback_keywords', [])
+                    deny_outlets = audience_rules.get('deny_outlets', [])
+                    break
+            else:
+                # Try to find a close match
+                for rule_audience in self.AUDIENCE_RULES.keys():
+                    if industry_lower in rule_audience.lower() or rule_audience.lower() in industry_lower:
+                        print(f"   🔄 Using closest match: '{rule_audience}'")
+                        industry = rule_audience
+                        audience_rules = self.AUDIENCE_RULES[industry]
+                        fallback_keywords = audience_rules.get('fallback_keywords', [])
+                        deny_outlets = audience_rules.get('deny_outlets', [])
+                        break
+        
+        primary_candidates = []
+        fallback_candidates = []
+        denied_count = 0
+        audience_mismatch_count = 0
+        
+        # Convert deny list to lowercase for comparison
+        deny_outlets_lower = [outlet.lower() for outlet in deny_outlets]
+        
+        # Debug: Show first few outlet audiences
+        unique_audiences = set()
+        for outlet in all_outlets[:10]:  # Check first 10 outlets
+            audience = outlet.get('Audience', '')
+            if audience:
+                unique_audiences.add(audience)
+        print(f"   🔍 DEBUG: Sample audiences in database: {list(unique_audiences)}")
+        
+        for outlet in all_outlets:
+            outlet_name = outlet.get('Outlet Name', '')
+            outlet_audience = outlet.get('Audience', '')
+            outlet_id = outlet.get('id', outlet.get('Outlet Name', ''))
+            
+            # Skip denied outlets
+            if any(denied in outlet_name.lower() for denied in deny_outlets_lower):
+                denied_count += 1
+                continue
+            
+            # Primary candidates: outlets tagged with the selected audience
+            # Handle semicolon-separated audiences in database
+            outlet_audiences = [aud.strip().lower() for aud in outlet_audience.split(';')]
+            industry_lower = industry.lower()
+            
+            # Check for exact match or partial match in audience list
+            is_primary_match = (
+                industry_lower == outlet_audience.lower() or  # Exact match
+                industry_lower in outlet_audiences or  # In semicolon-separated list
+                any(industry_lower in aud for aud in outlet_audiences) or  # Partial match
+                any(aud in industry_lower for aud in outlet_audiences)  # Reverse partial match
+            )
+            
+            if is_primary_match:
+                primary_candidates.append(outlet)
+                print(f"   ✅ Primary match: {outlet_name} (Audience: {outlet_audience})")
+            else:
+                audience_mismatch_count += 1
+            # Check if outlet matches fallback keywords
+            outlet_text = self._outlet_texts.get(outlet_id, '')
+            if outlet_text:
+                matched_keywords = [kw for kw in fallback_keywords if kw.lower() in outlet_text.lower()]
+                if matched_keywords:
+                    fallback_candidates.append(outlet)
+                    print(f"   🔄 Fallback match: {outlet_name} (Keywords: {matched_keywords})")
+                else:
+                    # Additional fallback: check outlet name and description for relevance
+                    outlet_name_lower = outlet_name.lower()
+                    outlet_desc = outlet.get('Description', '').lower()
+                    
+                    # Check if outlet name or description contains relevant terms
+                    name_matches = [kw for kw in fallback_keywords if kw.lower() in outlet_name_lower]
+                    desc_matches = [kw for kw in fallback_keywords if kw.lower() in outlet_desc]
+                    
+                    if name_matches or desc_matches:
+                        fallback_candidates.append(outlet)
+                        print(f"   🔄 Fallback match (name/desc): {outlet_name} (Name: {name_matches}, Desc: {desc_matches})")
+        
+        print(f"   📊 DEBUG: Total outlets: {len(all_outlets)}")
+        print(f"   📊 DEBUG: Denied outlets: {denied_count}")
+        print(f"   📊 DEBUG: Audience mismatches: {audience_mismatch_count}")
+        print(f"   📊 DEBUG: Primary candidates: {len(primary_candidates)}")
+        print(f"   📊 DEBUG: Fallback candidates: {len(fallback_candidates)}")
+        
+        # Safety net: if we have very few candidates, add more outlets as fallback
+        total_candidates = len(primary_candidates) + len(fallback_candidates)
+        if total_candidates < 10:
+            print(f"   🚨 WARNING: Only {total_candidates} candidates found, expanding search...")
+            # Add outlets that weren't denied and don't match any audience
+            for outlet in all_outlets:
+                outlet_name = outlet.get('Outlet Name', '')
+                if outlet not in primary_candidates and outlet not in fallback_candidates:
+                    # Skip denied outlets
+                    if not any(denied in outlet_name.lower() for denied in deny_outlets_lower):
+                        fallback_candidates.append(outlet)
+                        print(f"   🔄 Emergency fallback: {outlet_name}")
+                        if len(fallback_candidates) >= 20:  # Limit emergency fallback
+                            break
+        
+        print(f"   📊 FINAL: Primary candidates: {len(primary_candidates)}")
+        print(f"   📊 FINAL: Fallback candidates: {len(fallback_candidates)}")
+        
+        return primary_candidates, fallback_candidates
+    
+    def _compute_v3_score(self, abstract: str, outlet: Dict, industry: str, is_fallback: bool = False) -> float:
+        """Compute v3 scoring using the new weighted formula."""
+        outlet_id = outlet.get('id', outlet.get('Outlet Name', ''))
+        outlet_name = outlet.get('Outlet Name', '')
+        outlet_text = self._outlet_texts.get(outlet_id, '')
+        outlet_keywords = self._outlet_keywords.get(outlet_id, [])
+        
+        if not outlet_text:
+            print(f"   ⚠️ No outlet text for {outlet_name}")
+            return 0.0
+        
+        # 1. Audience fit (45%)
+        audience_fit = 1.0 if not is_fallback else 0.9  # Higher base score for fallback
+        
+        # 2. Topic similarity (30%) - Industry-specific content matching
+        topic_similarity = self._calculate_topic_similarity(abstract, outlet_id, industry)
+        
+        # 3. Keyword overlap (15%) - Industry-specific keyword matching
+        keyword_overlap = self._calculate_keyword_overlap(abstract, outlet_id, industry)
+        if industry == "Investors & Analysts":
+            # Boost for investment-related keywords in outlet
+            outlet_text_lower = outlet_text.lower()
+            investment_keywords = ['investment', 'investors', 'funding', 'venture', 'capital', 'markets', 'financial', 'ipo', 'equity', 'analysts', 'bloomberg', 'reuters', 'wsj', 'fortune', 'forbes']
+            keyword_matches = sum(1 for kw in investment_keywords if kw in outlet_text_lower)
+            if keyword_matches > 0:
+                keyword_overlap = min(1.0, keyword_overlap + (keyword_matches * 0.05))
+        
+        # 4. Contrib friendly (5%)
+        contrib_friendly = 1.0 if outlet.get('Contributed Content', '').lower() in ['yes', 'true', '1'] else 0.7
+        
+        # 5. Editorial prior (5%)
+        editorial_prior = 1.0 if outlet.get('Editorial Priority', '').lower() in ['high', 'priority'] else 0.8
+        
+        # Calculate weighted score
+        total_score = (
+            self.AUDIENCE_FIT_WEIGHT * audience_fit +
+            self.TOPIC_SIMILARITY_WEIGHT * topic_similarity +
+            self.KEYWORD_OVERLAP_WEIGHT * keyword_overlap +
+            self.CONTRIB_FRIENDLY_WEIGHT * contrib_friendly +
+            self.EDITORIAL_PRIOR_WEIGHT * editorial_prior
+        )
+        
+        # Apply fallback penalty
+        if is_fallback:
+            total_score += self.FALLBACK_PENALTY
+        
+        # Apply outlet-specific boosts for premium outlets and penalties for irrelevant ones
+        outlet_name_lower = outlet_name.lower()
+        if industry == "Investors & Analysts":
+            # Premium investment outlets get significant boosts
+            if any(premium in outlet_name_lower for premium in ['bloomberg', 'reuters', 'financial times', 'wall street journal', 'wsj', 'cnbc']):
+                total_score += 0.35  # 35% boost for premium outlets
+            elif any(tier2 in outlet_name_lower for tier2 in ['fortune', 'forbes', 'business insider', 'harvard business review', 'institutional investor', 'pitchbook']):
+                total_score += 0.25  # 25% boost for tier 2 outlets
+            elif any(tier3 in outlet_name_lower for tier3 in ['inc', 'fast company', 'time', 'the atlantic', 'world economic forum']):
+                total_score += 0.15  # 15% boost for tier 3 outlets
+            # Penalize irrelevant outlets (only for Investors & Analysts)
+            elif any(irrelevant in outlet_name_lower for irrelevant in ['search engine', 'seo', 'marketing', 'healthcare', 'medical', 'energy', 'fintech', 'quantum', 'tech']):
+                total_score -= 0.3  # 30% penalty for irrelevant outlets
+        elif industry == "Sustainability & Climate Leaders":
+            # Boost for sustainability outlets
+            if any(sustainability in outlet_name_lower for sustainability in ['greenbiz', 'trellis', 'environmental leader', 'sustainable brands', 'cleantechnica', 'renewable energy world', 'inside climate news', 'climate central', 'canary media']):
+                total_score += 0.4  # 40% boost for premium sustainability outlets
+            elif any(energy in outlet_name_lower for energy in ['energy central', 'solar power', 'wind power', 'clean energy', 'renewable energy', 'factor this']):
+                total_score += 0.3  # 30% boost for energy outlets
+            elif any(general in outlet_name_lower for general in ['environment+energy leader', 'green tech media', 'climate tech']):
+                total_score += 0.2  # 20% boost for general sustainability outlets
+            # Penalize irrelevant outlets for sustainability
+            elif any(irrelevant in outlet_name_lower for irrelevant in ['tech', 'software', 'cybersecurity', 'healthcare', 'medical', 'food processing', 'supply chain', 'makeuseof', 'techdirt', 'narratively']):
+                total_score -= 0.4  # 40% penalty for irrelevant outlets
+        elif industry == "Healthcare & Health Tech Leaders":
+            # Boost for healthcare outlets
+            if any(healthcare in outlet_name_lower for healthcare in ['modern healthcare', 'healthcare it news', 'hit consultant', 'medcity news', 'beckers hospital review']):
+                total_score += 0.3  # 30% boost for healthcare outlets
+        elif industry == "Cybersecurity Experts":
+            print(f"   🔒 DEBUG: Processing Cybersecurity Experts for {outlet_name}")
+            # Boost for premium cybersecurity outlets
+            if any(premium in outlet_name_lower for premium in ['dark reading', 'securityweek', 'sc magazine', 'security boulevard', 'bleepingcomputer', 'cyber defense magazine', 'the hacker news', 'infosecurity magazine']):
+                total_score += 0.5  # 50% boost for premium cybersecurity outlets
+                print(f"   🚀 BOOST: +50% for premium cybersecurity outlet: {outlet_name}")
+            elif any(tier2 in outlet_name_lower for tier2 in ['cio dive', 'itpro', 'devops.com', 'cloud computing news', 'techtalks', 'cloud native now', 'quantum insider', 'hit consultant']):
+                total_score += 0.3  # 30% boost for tier 2 cybersecurity outlets
+                print(f"   🚀 BOOST: +30% for tier 2 cybersecurity outlet: {outlet_name}")
+            # Penalize irrelevant outlets for cybersecurity
+            elif any(irrelevant in outlet_name_lower for irrelevant in ['time', 'usa today', 'fast company', 'techradar', 'wired', 'healthcare it news', 'world economic forum', 'the guardian', 'mother jones', 'washington post', 'modern healthcare', 'environment+energy leader', 'american banker', 'banking dive', 'fintech magazine', 'infoworld', 'the verge', 'the decoder']):
+                total_score -= 0.4  # 40% penalty for irrelevant outlets
+                print(f"   ⚠️ PENALTY: -40% for irrelevant outlet: {outlet_name}")
+            else:
+                print(f"   ℹ️ NO BOOST: No specific boost/penalty for {outlet_name}")
+        elif industry == "Finance & Fintech Leaders":
+            print(f"   🏦 DEBUG: Processing Finance & Fintech Leaders for {outlet_name}")
+            # Boost for premium finance outlets
+            if any(premium in outlet_name_lower for premium in ['bloomberg', 'reuters', 'financial times', 'wall street journal', 'wsj', 'cnbc', 'fortune', 'forbes']):
+                total_score += 0.5  # 50% boost for premium finance outlets
+                print(f"   🚀 BOOST: +50% for premium finance outlet: {outlet_name}")
+            elif any(fintech in outlet_name_lower for fintech in ['fintech magazine', 'american banker', 'banking dive', 'payments dive', 'banking technology', 'finextra']):
+                total_score += 0.4  # 40% boost for fintech outlets
+                print(f"   🚀 BOOST: +40% for fintech outlet: {outlet_name}")
+            elif any(business in outlet_name_lower for business in ['business insider', 'the economist', 'marketwatch', 'yahoo finance', 'cnn business']):
+                total_score += 0.3  # 30% boost for business finance outlets
+                print(f"   🚀 BOOST: +30% for business finance outlet: {outlet_name}")
+            # Penalize irrelevant outlets for finance
+            elif any(irrelevant in outlet_name_lower for irrelevant in ['cloud computing', 'techtarget', 'gizmodo', 'factor this', 'renewable energy', 'the hill', 'the decoder', 'dark reading', 'usa today', 'the hacker news', 'time', 'fast company', 'techradar', 'wired', 'healthcare it news', 'securityweek', 'world economic forum', 'the guardian', 'mother jones', 'washington post', 'modern healthcare', 'environment+energy leader', 'cio dive', 'infoworld']):
+                total_score -= 0.4  # 40% penalty for irrelevant outlets
+                print(f"   ⚠️ PENALTY: -40% for irrelevant outlet: {outlet_name}")
+            else:
+                print(f"   ℹ️ NO BOOST: No specific boost/penalty for {outlet_name}")
+        elif industry == "Education & Policy Leaders":
+            # Boost for education and policy outlets
+            if any(education in outlet_name_lower for education in ['edtech magazine', 'chronicle of higher education', 'education week', 'inside higher ed', 'campus technology']):
+                total_score += 0.5  # 50% boost for education outlets
+            elif any(policy in outlet_name_lower for policy in ['the hill', 'politico', 'washington post', 'the atlantic', 'the economist', 'brookings', 'aei']):
+                total_score += 0.4  # 40% boost for policy outlets
+            elif any(academic in outlet_name_lower for academic in ['harvard business review', 'mit technology review', 'stanford', 'berkeley', 'acm', 'ieee']):
+                total_score += 0.3  # 30% boost for academic outlets
+            # Penalize irrelevant outlets for education
+            elif any(irrelevant in outlet_name_lower for irrelevant in ['modern healthcare', 'bleepingcomputer', 'construction dive', 'supply chain', 'food processing', 'energy central', 'utility dive']):
+                total_score -= 0.3  # 30% penalty for irrelevant outlets
+        elif industry == "Tech Professionals":
+            print(f"   💻 DEBUG: Processing Tech Professionals for {outlet_name}")
+            # Boost for tech outlets
+            if any(tech in outlet_name_lower for tech in ['techcrunch', 'venturebeat', 'the next web', 'wired', 'ars technica', 'mit technology review', 'ieee', 'acm']):
+                total_score += 0.4  # 40% boost for tech outlets
+                print(f"   🚀 BOOST: +40% for tech outlet: {outlet_name}")
+            elif any(software in outlet_name_lower for software in ['github', 'stack overflow', 'dev.to', 'hacker news', 'techdirt']):
+                total_score += 0.3  # 30% boost for software outlets
+                print(f"   🚀 BOOST: +30% for software outlet: {outlet_name}")
+            # Penalize irrelevant outlets for tech
+            elif any(irrelevant in outlet_name_lower for irrelevant in ['time', 'usa today', 'fast company', 'healthcare it news', 'world economic forum', 'the guardian', 'mother jones', 'washington post', 'modern healthcare', 'environment+energy leader', 'american banker', 'banking dive', 'fintech magazine', 'infoworld', 'the decoder']):
+                total_score -= 0.4  # 40% penalty for irrelevant outlets
+                print(f"   ⚠️ PENALTY: -40% for irrelevant outlet: {outlet_name}")
+            else:
+                print(f"   ℹ️ NO BOOST: No specific boost/penalty for {outlet_name}")
+        elif industry == "Business Executives":
+            print(f"   💼 DEBUG: Processing Business Executives for {outlet_name}")
+            # Boost for business outlets
+            if any(business in outlet_name_lower for business in ['harvard business review', 'mckinsey', 'bain', 'bcg', 'strategy+business', 'inc', 'fast company']):
+                total_score += 0.4  # 40% boost for business outlets
+                print(f"   🚀 BOOST: +40% for business outlet: {outlet_name}")
+            elif any(executive in outlet_name_lower for executive in ['fortune', 'forbes', 'business insider', 'bloomberg', 'wsj', 'financial times']):
+                total_score += 0.3  # 30% boost for executive outlets
+                print(f"   🚀 BOOST: +30% for executive outlet: {outlet_name}")
+            # Penalize irrelevant outlets for business
+            elif any(irrelevant in outlet_name_lower for irrelevant in ['time', 'usa today', 'techradar', 'wired', 'healthcare it news', 'world economic forum', 'the guardian', 'mother jones', 'washington post', 'modern healthcare', 'environment+energy leader', 'american banker', 'banking dive', 'fintech magazine', 'infoworld', 'the decoder']):
+                total_score -= 0.4  # 40% penalty for irrelevant outlets
+                print(f"   ⚠️ PENALTY: -40% for irrelevant outlet: {outlet_name}")
+            else:
+                print(f"   ℹ️ NO BOOST: No specific boost/penalty for {outlet_name}")
+        elif industry == "Startup Founders & Entrepreneurs":
+            print(f"   🚀 DEBUG: Processing Startup Founders & Entrepreneurs for {outlet_name}")
+            # Boost for startup outlets
+            if any(startup in outlet_name_lower for startup in ['techcrunch', 'venturebeat', 'startup grind', 'entrepreneur', 'inc', 'fast company']):
+                total_score += 0.4  # 40% boost for startup outlets
+                print(f"   🚀 BOOST: +40% for startup outlet: {outlet_name}")
+            elif any(venture in outlet_name_lower for venture in ['pitchbook', 'crunchbase', 'angellist', 'y combinator']):
+                total_score += 0.3  # 30% boost for venture outlets
+                print(f"   🚀 BOOST: +30% for venture outlet: {outlet_name}")
+            # Penalize irrelevant outlets for startups
+            elif any(irrelevant in outlet_name_lower for irrelevant in ['time', 'usa today', 'techradar', 'wired', 'healthcare it news', 'world economic forum', 'the guardian', 'mother jones', 'washington post', 'modern healthcare', 'environment+energy leader', 'american banker', 'banking dive', 'fintech magazine', 'infoworld', 'the decoder']):
+                total_score -= 0.4  # 40% penalty for irrelevant outlets
+                print(f"   ⚠️ PENALTY: -40% for irrelevant outlet: {outlet_name}")
+            else:
+                print(f"   ℹ️ NO BOOST: No specific boost/penalty for {outlet_name}")
+        
+        # Don't force minimum scores - let natural scoring work
+        final_score = max(0.0, total_score)
+        
+        print(f"   📊 Score for {outlet_name}: {final_score:.3f} (audience: {audience_fit}, topic: {topic_similarity:.3f}, keywords: {keyword_overlap:.3f}, fallback: {is_fallback})")
+        
+        return final_score
+    
+    def _get_audience_min_threshold(self, industry: str) -> float:
+        """Get audience-specific minimum threshold for fallback candidates."""
+        # More flexible thresholds for audiences with fewer outlets
+        flexible_audiences = [
+            "Sustainability & Climate Leaders",
+            "Healthcare & Health Tech Leaders", 
+            "Education & Policy Leaders",
+            "Real Estate & Built Environment",
+            "Finance & Fintech Leaders",
+            "General Public"
+        ]
+        
+        if industry in flexible_audiences:
+            return 0.25  # Very flexible for niche audiences
+        elif industry == "Investors & Analysts":
+            return 0.50  # Strict for investment (many outlets available)
+        else:
+            return 0.30  # Default threshold
+    
+    def _generate_v3_explain_object(self, outlet: Dict, industry: str, score: float, is_fallback: bool) -> Dict:
+        """Generate explain object for v3 matching."""
+        outlet_audience = outlet.get('Audience', 'Unknown')
+        
+        return {
+            "audience_match": f"Audience: {outlet_audience} {'✔' if not is_fallback else '⚠️ (Fallback)'}",
+            "confidence": f"{round(score * 100)}%",
+            "match_type": "fallback" if is_fallback else "primary",
+            "explanation": f"Matched via {'audience tag' if not is_fallback else 'keyword fallback'} for {industry}"
+        }
 
     def _ensure_json_serializable(self, obj):
         """Ensure object is JSON serializable by converting numpy types."""
