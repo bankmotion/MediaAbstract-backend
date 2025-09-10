@@ -10,55 +10,76 @@ import math
 class OutletMatcher:
     """WriteFor.co Matching Logic v3 - Audience-first matching with fallback expansion."""
     
-    # Audience configuration with fallback keywords and deny lists
+    # Audience configuration with suppression rules, minimum scores, and fallback keywords
     AUDIENCE_RULES = {
         "Business Executives": {
+            "score_min": 0.55,
             "fallback_keywords": ["CEO", "executive", "leadership", "strategy", "growth", "corporate", "business", "management", "C-suite", "CFO", "CTO", "COO", "board", "director", "president", "vice president", "senior", "chief", "officer"],
             "deny_outlets": ["SC Magazine", "SecurityWeek", "Security Boulevard"]
         },
         "Tech Professionals": {
+            "score_min": 0.45,
             "fallback_keywords": ["developer", "software", "engineering", "cloud", "AI tools", "low-code", "DevOps", "tech", "technology", "IT", "programming", "coding", "system", "platform", "digital", "innovation", "automation", "data", "analytics"],
             "deny_outlets": ["Adweek", "PRWeek", "Marketing Dive"]
         },
         "Cybersecurity Experts": {
+            "score_min": 0.55,
             "fallback_keywords": ["cybersecurity", "CISO", "ransomware", "phishing", "zero trust", "threat intelligence", "security", "cyber", "malware", "vulnerability", "breach", "firewall", "encryption", "compliance", "risk", "threat", "incident", "SOC"],
-            "deny_outlets": ["Adweek", "Retail Dive", "Boston Globe"]
+            "deny_outlets": ["Adweek", "Retail Dive", "Boston Globe"],
+            "suppressed_outlets": ["Cloud Computing News", "The Quantum Insider"],
+            "allow_keywords": ["quantum", "qubit", "post-quantum", "pqcrypto", "qkd", "cloud", "saas", "kubernetes", "container", "cspm", "cnapp"]
         },
         "Startup Founders & Entrepreneurs": {
+            "score_min": 0.45,
             "fallback_keywords": ["startup", "founder", "entrepreneur", "venture", "fundraising", "seed round", "innovation", "disruption", "scale", "growth", "pitch", "investor", "accelerator", "incubator", "equity", "valuation", "IPO", "exit"],
             "deny_outlets": ["SC Magazine", "SecurityWeek", "Dark Reading"]
         },
         "Marketing & PR Professionals": {
+            "score_min": 0.45,
             "fallback_keywords": ["marketing", "PR", "communications", "brand", "visibility", "earned media", "advertising", "campaign", "social media", "content", "digital", "strategy", "audience", "engagement", "conversion", "ROI", "analytics"],
-            "deny_outlets": ["SC Magazine", "SecurityWeek", "Dark Reading"]
+            "deny_outlets": ["SC Magazine", "SecurityWeek", "Dark Reading"],
+            "suppressed_outlets": ["PR Daily", "Built In", "Modern Healthcare", "TechRadar"]
         },
         "Investors & Analysts": {
+            "score_min": 0.55,
             "fallback_keywords": ["venture capital", "private equity", "IPO", "markets", "funding", "investment", "investors", "analysts", "financial", "equity", "capital", "bloomberg", "reuters", "wsj", "fortune", "forbes", "cnbc"],
             "deny_outlets": ["SC Magazine", "SecurityWeek", "PR Daily", "FinTech Magazine", "Search Engine Journal", "Search Engine Land", "HIT Consultant", "MedCity News", "Energy Central", "Healthcare IT News", "Modern Healthcare", "Quantum Insider", "TechCrunch", "VentureBeat"]
         },
         "Healthcare & Health Tech Leaders": {
+            "score_min": 0.45,
             "fallback_keywords": ["healthcare", "hospital", "medical", "patient", "clinical", "HIPAA", "health tech", "health", "medicine", "pharmaceutical", "biotech", "telemedicine", "digital health", "wellness", "treatment", "diagnosis", "therapy", "nursing", "physician"],
-            "deny_outlets": ["Adweek", "Retail Dive", "TechDirt"]
+            "deny_outlets": ["Adweek", "Retail Dive", "TechDirt"],
+            "suppressed_outlets": ["The Quantum Insider", "The Next Web", "Cloud Computing News", "TechTarget", "TechCrunch", "VentureBeat", "Wired", "The Verge", "Ars Technica", "Engadget", "Gizmodo", "TechRadar", "InfoWorld", "CIO Dive", "DevOps.com", "ITPro", "The Decoder"],
+            "allow_keywords": ["quantum", "qubit", "post-quantum", "pqcrypto", "qkd", "healthcare", "medical", "health", "clinical", "patient", "hospital", "telemedicine", "digital health", "biotech", "pharmaceutical"]
         },
         "Education & Policy Leaders": {
+            "score_min": 0.45,
             "fallback_keywords": ["education", "policy", "school", "university", "student", "teacher", "privacy", "equity", "academic", "learning", "teaching", "curriculum", "pedagogy", "edtech", "online learning", "higher education", "K-12", "college", "research", "scholarship"],
             "deny_outlets": ["Energy Central", "Utility Dive", "Food Processing"]
         },
         "Sustainability & Climate Leaders": {
+            "score_min": 0.45,
             "fallback_keywords": ["sustainability", "climate", "carbon", "renewable", "energy", "EV", "batteries", "DLE", "decarbonization", "green", "environmental", "clean energy", "solar", "wind", "emissions", "net zero", "esg"],
             "deny_outlets": ["SC Magazine", "SecurityWeek", "Adweek", "Food Processing", "Supply Chain Management Review", "TechRadar", "ITPro", "Dark Reading", "MakeUseOf", "TechDirt", "Narratively", "Built In", "IEEE Software"]
         },
         "Real Estate & Built Environment": {
-            "fallback_keywords": ["real estate", "property", "construction", "proptech", "buildings", "commercial real estate", "infrastructure", "housing", "development", "architecture", "urban planning", "smart buildings", "facilities", "property management", "leasing", "mortgage", "REIT"],
-            "deny_outlets": ["SC Magazine", "SecurityWeek", "Adweek"]
+            "score_min": 0.50,
+            "fallback_keywords": ["real estate", "property", "construction", "proptech", "buildings", "commercial real estate", "infrastructure", "housing", "development", "architecture", "urban planning", "smart buildings", "facilities", "property management", "leasing", "mortgage", "REIT", "building design", "construction management", "facility management", "building operations", "commercial property", "real estate finance", "property development", "building technology", "construction industry", "building industry"],
+            "deny_outlets": ["SC Magazine", "SecurityWeek", "Adweek", "PR Daily", "The Hill", "InformationWeek", "Built In", "TechCrunch", "VentureBeat", "Wired", "The Verge", "Ars Technica", "Engadget", "Gizmodo", "TechRadar", "MIT Technology Review", "IEEE Software", "AI Time Journal", "Smashing Magazine", "DZone", "The New Stack", "DevOps.com", "SD Times", "i-Programmer", "OpenSource.com", "InfoQ", "Cloud Computing News", "TechTarget", "Cloud Native Now", "The Chronicle of Higher Education", "SHRM", "InfoWorld", "ITPro", "Healthcare Design", "MindBodyGreen"],
+            "suppressed_outlets": ["PR Daily", "The Hill", "InformationWeek", "Built In", "TechCrunch", "VentureBeat", "Wired", "The Verge", "Ars Technica", "Engadget", "Gizmodo", "TechRadar", "MIT Technology Review", "IEEE Software", "AI Time Journal", "Smashing Magazine", "DZone", "The New Stack", "DevOps.com", "SD Times", "i-Programmer", "OpenSource.com", "InfoQ", "Cloud Computing News", "TechTarget", "Cloud Native Now", "The Chronicle of Higher Education", "SHRM", "InfoWorld", "ITPro", "Healthcare Design", "MindBodyGreen"],
+            "allow_keywords": ["real estate", "property", "construction", "building", "architecture", "proptech", "commercial real estate", "infrastructure", "housing", "development", "facilities", "property management", "leasing", "mortgage", "REIT", "building design", "construction management", "facility management", "building operations", "commercial property", "real estate finance", "property development", "building technology", "construction industry", "building industry", "smart buildings", "urban planning"]
         },
         "Finance & Fintech Leaders": {
+            "score_min": 0.55,
             "fallback_keywords": ["finance", "banking", "fintech", "payments", "crypto", "regulation", "ecommerce", "financial", "investment", "trading", "wealth", "insurance", "lending", "credit", "debit", "blockchain", "digital currency", "robo-advisor"],
             "deny_outlets": ["SC Magazine", "SecurityWeek", "Dark Reading"]
         },
         "General Public": {
-            "fallback_keywords": ["consumer", "lifestyle", "daily life", "public", "general audience", "technology adoption", "user", "customer", "people", "society", "community", "family", "home", "personal", "everyday", "mainstream", "popular"],
-            "deny_outlets": ["SC Magazine", "Dark Reading", "Adweek"]
+            "score_min": 0.45,
+            "fallback_keywords": ["consumer", "lifestyle", "daily life", "public", "general audience", "technology adoption", "user", "customer", "people", "society", "community", "family", "home", "personal", "everyday", "mainstream", "popular", "health", "food", "travel", "entertainment", "news", "local"],
+            "deny_outlets": ["SC Magazine", "Dark Reading", "Adweek", "Fortune", "The Wall Street Journal", "Bloomberg", "Financial Times", "Fast Company", "Business Insider", "Harvard Business Review", "McKinsey", "TechCrunch", "VentureBeat", "Wired", "The Verge", "Healthcare IT News", "Modern Healthcare", "Healthcare Design", "Healthcare Innovation", "The Economist", "National Geographic"],
+            "suppressed_outlets": ["Fortune", "The Wall Street Journal", "Bloomberg", "Financial Times", "Fast Company", "Business Insider", "Harvard Business Review", "McKinsey", "TechCrunch", "VentureBeat", "Wired", "The Verge", "MIT Technology Review", "IEEE Software", "Healthcare IT News", "Modern Healthcare", "Healthcare Design", "Healthcare Innovation", "The Economist", "National Geographic"],
+            "allow_keywords": ["consumer", "lifestyle", "health", "family", "home", "personal", "everyday", "mainstream", "popular", "local", "community", "public"]
         }
     }
     
@@ -74,6 +95,12 @@ class OutletMatcher:
     DENY_PENALTY = -0.50              # Penalty for denied outlets
     MIN_RESULTS = 8                   # Always return at least 8 results
     MIN_FALLBACK_SCORE = 0.30         # Flexible minimum score for fallback results
+    
+    # Deduplication and AI partner configuration
+    DEDUPE_ENABLED = True
+    DEDUPE_KEY = "outlet_id"          # Primary key for deduplication
+    TIE_BREAKER = "score"             # Use score as tie-breaker
+    AI_PARTNER_NULL_STATE = "Unconfirmed"  # Default state for null ai_partnered
     
     
     # Milestone 6 Configuration
@@ -1368,10 +1395,7 @@ class OutletMatcher:
             if boosted_similarity < 0.1:
                 boosted_similarity = 0.1  # Higher minimum base similarity
             
-            # Debug logging
-            print(f"      Base similarity: {base_similarity:.3f}, Term matches: {term_matches}")
-            print(f"      Abstract words: {len(abstract_words)}, Outlet words: {len(outlet_words)}")
-            print(f"      Intersection: {intersection}, Union: {union}")
+            # Removed verbose debug output
             
             return boosted_similarity
             
@@ -1419,10 +1443,7 @@ class OutletMatcher:
             if boosted_overlap < 0.1:
                 boosted_overlap = 0.1  # Higher minimum base overlap
             
-            # Debug logging
-            print(f"      Base overlap: {base_overlap:.3f}, Term matches: {term_matches}")
-            print(f"      Abstract words: {len(abstract_words)}, Outlet keywords: {total_keywords}")
-            print(f"      Intersection: {intersection}")
+            # Removed verbose debug output
             
             return boosted_overlap
             
@@ -1592,7 +1613,7 @@ class OutletMatcher:
                 
                 for outlet in fallback_candidates:
                     score = self._compute_v3_score(abstract, outlet, industry, is_fallback=True)
-                    print(f"   🔄 Fallback score: {score:.3f} (min required: {min_threshold})")
+                    # Removed verbose debug output
                     if score >= min_threshold:  # Use audience-specific minimum
                         scored_results.append({
                             'outlet': outlet,
@@ -1614,8 +1635,52 @@ class OutletMatcher:
             # Sort deterministically (score DESC, outlet_id ASC)
             scored_results.sort(key=lambda x: (-x['score'], x['outlet'].get('id', x['outlet'].get('Outlet Name', ''))))
             
+            # Apply minimum score threshold filtering
+            min_threshold = self._get_audience_min_threshold(industry)
+            filtered_results = [r for r in scored_results if r['score'] >= min_threshold]
+            print(f"   📊 Filtered by minimum threshold ({min_threshold:.2f}): {len(scored_results)} → {len(filtered_results)}")
+            
+            # AGGRESSIVE FINAL FILTERING FOR REAL ESTATE - ONLY PERFECT FIT OUTLETS
+            if industry == "Real Estate & Built Environment":
+                print(f"   🎯 APPLYING PERFECT FIT FILTERING FOR REAL ESTATE")
+                
+                # Only allow outlets that are clearly real estate/construction related
+                perfect_fit_outlets = []
+                for result in filtered_results:
+                    outlet_name = result['outlet'].get('Outlet Name', '').lower()
+                    score = result['score']
+                    
+                    # Only allow outlets that are clearly real estate/construction related
+                    real_estate_terms = ['construction', 'real estate', 'property', 'building', 'architecture', 'proptech', 'commercial', 'housing', 'development', 'facilities', 'leasing', 'mortgage', 'reit', 'inman', 'cretech', 'design', 'engineering', 'infrastructure', 'urban', 'planning', 'sustainability', 'green', 'energy', 'smart', 'technology', 'innovation', 'investment', 'finance', 'business', 'management', 'operations', 'maintenance', 'renovation', 'retrofit', 'esg', 'environmental']
+                    is_real_estate = any(term in outlet_name for term in real_estate_terms)
+                    
+                    if is_real_estate and score >= 0.50:  # Balanced threshold for good fit
+                        perfect_fit_outlets.append(result)
+                        print(f"   ✅ PERFECT FIT: {result['outlet'].get('Outlet Name', '')} - {score:.3f}")
+                    else:
+                        print(f"   ❌ NOT PERFECT FIT: {result['outlet'].get('Outlet Name', '')} - {score:.3f} (real estate terms: {is_real_estate})")
+                
+                filtered_results = perfect_fit_outlets
+                print(f"   🎯 FINAL PERFECT FIT RESULTS: {len(filtered_results)} outlets")
+            
+            # Debug: Show score distribution for Real Estate
+            if industry == "Real Estate & Built Environment" and len(scored_results) > 0:
+                scores = [r['score'] for r in scored_results]
+                print(f"   🔍 DEBUG: Score range: {min(scores):.3f} - {max(scores):.3f}")
+                print(f"   🔍 DEBUG: Scores above {min_threshold}: {len(filtered_results)}/{len(scored_results)}")
+                if len(filtered_results) == 0:
+                    print(f"   🚨 WARNING: No results above threshold {min_threshold}!")
+                    # Show top 5 scores for debugging
+                    top_scores = sorted(scored_results, key=lambda x: x['score'], reverse=True)[:5]
+                    for i, result in enumerate(top_scores):
+                        print(f"   🔍 Top {i+1}: {result['outlet'].get('Outlet Name', 'Unknown')} = {result['score']:.3f}")
+            
+            # Apply deduplication
+            deduplicated_results = self._deduplicate_results(filtered_results)
+            print(f"   📊 Deduplicated: {len(filtered_results)} → {len(deduplicated_results)}")
+            
             # Take top results
-            final_results = scored_results[:limit]
+            final_results = deduplicated_results[:limit]
             
             # STEP 4: BUILD FINAL MATCHES
             print(f"🏗️ STEP 4: Building final matches")
@@ -1633,12 +1698,16 @@ class OutletMatcher:
                 confidence_score = min(100, max(0, round(score * 100)))
                 confidence = f"{confidence_score}%"
                 
+                # Normalize AI partnered status
+                ai_partnered = self._normalize_ai_partnered(outlet.get('ai_partnered'))
+                
                 match_result = {
                     "outlet": outlet,
                     "score": self._ensure_json_serializable(round(score, 3)),
                     "match_confidence": confidence,
                     "explain": explain,
-                    "match_explanation": f"Audience: {industry} | Score: {confidence}"
+                    "match_explanation": f"Audience: {industry} | Score: {confidence}",
+                    "ai_partnered": ai_partnered
                 }
                 
                 if debug_mode:
@@ -1674,10 +1743,7 @@ class OutletMatcher:
         fallback_keywords = audience_rules.get('fallback_keywords', [])
         deny_outlets = audience_rules.get('deny_outlets', [])
         
-        print(f"   🔍 DEBUG: Looking for audience '{industry}'")
-        print(f"   🔍 DEBUG: Available audiences in rules: {list(self.AUDIENCE_RULES.keys())}")
-        print(f"   🔍 DEBUG: Fallback keywords: {fallback_keywords}")
-        print(f"   🔍 DEBUG: Deny outlets: {deny_outlets}")
+        # Removed verbose debug output
         
         # Handle case variations in audience names and map database audiences
         industry_lower = industry.lower()
@@ -1786,6 +1852,20 @@ class OutletMatcher:
             'proptech': 'Real Estate & Built Environment',
             'buildings': 'Real Estate & Built Environment',
             'infrastructure': 'Real Estate & Built Environment',
+            'commercial real estate': 'Real Estate & Built Environment',
+            'residential real estate': 'Real Estate & Built Environment',
+            'property management': 'Real Estate & Built Environment',
+            'architecture': 'Real Estate & Built Environment',
+            'urban planning': 'Real Estate & Built Environment',
+            'facilities management': 'Real Estate & Built Environment',
+            'building design': 'Real Estate & Built Environment',
+            'construction management': 'Real Estate & Built Environment',
+            'smart buildings': 'Real Estate & Built Environment',
+            'building operations': 'Real Estate & Built Environment',
+            'property development': 'Real Estate & Built Environment',
+            'real estate finance': 'Real Estate & Built Environment',
+            'commercial property': 'Real Estate & Built Environment',
+            'building technology': 'Real Estate & Built Environment',
             
             # Finance & Fintech Leaders
             'finance': 'Finance & Fintech Leaders',
@@ -1834,13 +1914,7 @@ class OutletMatcher:
         # Convert deny list to lowercase for comparison
         deny_outlets_lower = [outlet.lower() for outlet in deny_outlets]
         
-        # Debug: Show first few outlet audiences
-        unique_audiences = set()
-        for outlet in all_outlets[:10]:  # Check first 10 outlets
-            audience = outlet.get('Audience', '')
-            if audience:
-                unique_audiences.add(audience)
-        print(f"   🔍 DEBUG: Sample audiences in database: {list(unique_audiences)}")
+        # Debug: Show sample outlets and their audience tags (removed for cleaner console)
         
         for outlet in all_outlets:
             outlet_name = outlet.get('Outlet Name', '')
@@ -1850,6 +1924,41 @@ class OutletMatcher:
             # Skip denied outlets
             if any(denied in outlet_name.lower() for denied in deny_outlets_lower):
                 denied_count += 1
+                continue
+            
+            # AGGRESSIVE FILTERING FOR REAL ESTATE - HARD CODED TO ENSURE IT WORKS
+            if industry == "Real Estate & Built Environment":
+                # List of outlets that should NEVER appear for Real Estate
+                forbidden_outlets = [
+                    'infoworld', 'itpro', 'cloud computing news', 'techtarget', 'cloud native now',
+                    'chronicle of higher education', 'shrm', 'smashing magazine', 'dzone', 
+                    'the new stack', 'devops.com', 'sd times', 'i-programmer', 'opensource.com', 
+                    'infoq', 'mit technology review', 'ieee software', 'ai time journal',
+                    'techcrunch', 'venturebeat', 'wired', 'the verge', 'ars technica', 
+                    'engadget', 'gizmodo', 'techradar', 'pr daily', 'the hill', 
+                    'informationweek', 'built in', 'healthcare design', 'mindbodygreen',
+                    'wellness', 'health', 'medical', 'fitness', 'lifestyle', 'beauty',
+                    'nutrition', 'mental health', 'therapy', 'counseling', 'wellness',
+                    'holistic', 'alternative medicine', 'natural health', 'organic',
+                    'supplements', 'vitamins', 'yoga', 'meditation', 'mindfulness'
+                ]
+                
+                outlet_name_lower = outlet_name.lower()
+                is_forbidden = any(forbidden in outlet_name_lower for forbidden in forbidden_outlets)
+                
+                if is_forbidden:
+                    print(f"   🚫 FORBIDDEN: {outlet_name} is in hard-coded forbidden list for Real Estate")
+                    denied_count += 1
+                    continue
+            
+            # Check suppression rules
+            if industry == "Real Estate & Built Environment":
+                print(f"   🔍 PROCESSING OUTLET: '{outlet_name}' for Real Estate audience")
+            
+            if self._should_suppress_outlet(outlet_name, industry, abstract):
+                denied_count += 1
+                if industry == "Real Estate & Built Environment":
+                    print(f"   🚫 SUPPRESSED: {outlet_name} (irrelevant for Real Estate)")
                 continue
             
             # Primary candidates: outlets tagged with the selected audience
@@ -1867,7 +1976,6 @@ class OutletMatcher:
             
             if is_primary_match:
                 primary_candidates.append(outlet)
-                print(f"   ✅ Primary match: {outlet_name} (Audience: {outlet_audience})")
             else:
                 audience_mismatch_count += 1
             # Check if outlet matches fallback keywords
@@ -1876,7 +1984,6 @@ class OutletMatcher:
                 matched_keywords = [kw for kw in fallback_keywords if kw.lower() in outlet_text.lower()]
                 if matched_keywords:
                     fallback_candidates.append(outlet)
-                    print(f"   🔄 Fallback match: {outlet_name} (Keywords: {matched_keywords})")
                 else:
                     # Additional fallback: check outlet name and description for relevance
                     outlet_name_lower = outlet_name.lower()
@@ -1888,31 +1995,29 @@ class OutletMatcher:
                     
                     if name_matches or desc_matches:
                         fallback_candidates.append(outlet)
-                        print(f"   🔄 Fallback match (name/desc): {outlet_name} (Name: {name_matches}, Desc: {desc_matches})")
         
-        print(f"   📊 DEBUG: Total outlets: {len(all_outlets)}")
-        print(f"   📊 DEBUG: Denied outlets: {denied_count}")
-        print(f"   📊 DEBUG: Audience mismatches: {audience_mismatch_count}")
-        print(f"   📊 DEBUG: Primary candidates: {len(primary_candidates)}")
-        print(f"   📊 DEBUG: Fallback candidates: {len(fallback_candidates)}")
+        # Removed verbose debug output
         
         # Safety net: if we have very few candidates, add more outlets as fallback
         total_candidates = len(primary_candidates) + len(fallback_candidates)
         if total_candidates < 10:
             print(f"   🚨 WARNING: Only {total_candidates} candidates found, expanding search...")
+            print(f"   📊 Primary candidates: {len(primary_candidates)}")
+            print(f"   📊 Fallback candidates: {len(fallback_candidates)}")
             # Add outlets that weren't denied and don't match any audience
+            emergency_added = 0
             for outlet in all_outlets:
                 outlet_name = outlet.get('Outlet Name', '')
                 if outlet not in primary_candidates and outlet not in fallback_candidates:
                     # Skip denied outlets
                     if not any(denied in outlet_name.lower() for denied in deny_outlets_lower):
                         fallback_candidates.append(outlet)
-                        print(f"   🔄 Emergency fallback: {outlet_name}")
-                        if len(fallback_candidates) >= 20:  # Limit emergency fallback
+                        emergency_added += 1
+                        if emergency_added >= 30:  # Increased limit for Real Estate
                             break
+            print(f"   🚨 Emergency fallback: Added {emergency_added} additional candidates")
         
-        print(f"   📊 FINAL: Primary candidates: {len(primary_candidates)}")
-        print(f"   📊 FINAL: Fallback candidates: {len(fallback_candidates)}")
+        # Removed verbose debug output
         
         return primary_candidates, fallback_candidates
     
@@ -1930,11 +2035,29 @@ class OutletMatcher:
         # 1. Audience fit (45%)
         audience_fit = 1.0 if not is_fallback else 0.9  # Higher base score for fallback
         
+        # Boost audience fit for Real Estate & Built Environment
+        if industry == "Real Estate & Built Environment":
+            audience_fit = 0.95  # Give high audience fit for Real Estate (reduced from 1.0)
+            print(f"   📈 BOOSTED audience fit to {audience_fit:.3f} for Real Estate & Built Environment")
+        
         # 2. Topic similarity (30%) - Industry-specific content matching
         topic_similarity = self._calculate_topic_similarity(abstract, outlet_id, industry)
         
         # 3. Keyword overlap (15%) - Industry-specific keyword matching
         keyword_overlap = self._calculate_keyword_overlap(abstract, outlet_id, industry)
+        
+        # Boost base scores for Real Estate & Built Environment to improve relevance
+        if industry == "Real Estate & Built Environment":
+            # Increase topic similarity for real estate-related content
+            if any(term in abstract.lower() for term in ['property', 'building', 'construction', 'commercial', 'real estate', 'facilities', 'infrastructure', 'smart building', 'energy', 'esg', 'sustainability']):
+                topic_similarity = max(topic_similarity, 0.2)  # Minimum 20% topic similarity (reduced from 30%)
+                print(f"   📈 BOOSTED topic similarity to {topic_similarity:.3f} for real estate content")
+            
+            # Increase keyword overlap for real estate-related outlets
+            outlet_name_lower = outlet_name.lower()
+            if any(term in outlet_name_lower for term in ['construction', 'building', 'property', 'real estate', 'facilities', 'infrastructure', 'architecture', 'design', 'commercial', 'development']):
+                keyword_overlap = max(keyword_overlap, 0.15)  # Minimum 15% keyword overlap (reduced from 20%)
+                print(f"   📈 BOOSTED keyword overlap to {keyword_overlap:.3f} for real estate outlet")
         if industry == "Investors & Analysts":
             # Boost for investment-related keywords in outlet
             outlet_text_lower = outlet_text.lower()
@@ -1986,43 +2109,75 @@ class OutletMatcher:
             # Penalize irrelevant outlets for sustainability
             elif any(irrelevant in outlet_name_lower for irrelevant in ['tech', 'software', 'cybersecurity', 'healthcare', 'medical', 'food processing', 'supply chain', 'makeuseof', 'techdirt', 'narratively']):
                 total_score -= 0.4  # 40% penalty for irrelevant outlets
+        elif industry == "Real Estate & Built Environment":
+            print(f"   🏢 Processing Real Estate & Built Environment for {outlet_name}")
+            # Boost for premium real estate outlets
+            if any(premium in outlet_name_lower for premium in ['commercial property executive', 'real estate weekly', 'property week', 'real estate finance journal', 'national real estate investor', 'commercial observer', 'real estate daily', 'globest', 'real estate news', 'property management', 'commercial real estate', 'real estate investment', 'property investment', 'real estate development', 'commercial property', 'real estate finance', 'property finance', 'real estate market', 'property market']):
+                total_score += 0.5  # 50% boost for premium real estate outlets
+                print(f"   🚀 BOOST: +50% for premium real estate outlet: {outlet_name}")
+            elif any(construction in outlet_name_lower for construction in ['construction dive', 'building design', 'building operating management', 'facilities management', 'building design + construction', 'construction executive', 'engineering news record', 'construction', 'building', 'facilities', 'infrastructure', 'engineering', 'architectural', 'construction management', 'building management', 'facility management', 'building operations', 'construction industry', 'building industry']):
+                total_score += 0.4  # 40% boost for construction outlets
+                print(f"   🚀 BOOST: +40% for construction outlet: {outlet_name}")
+            elif any(proptech in outlet_name_lower for proptech in ['inman', 'cretech', 'proptech news', 'real estate tech news', 'built world', 'realty mogul']):
+                total_score += 0.3  # 30% boost for proptech outlets
+                print(f"   🚀 BOOST: +30% for proptech outlet: {outlet_name}")
+            elif any(architecture in outlet_name_lower for architecture in ['building design', 'architecture', 'architectural', 'design', 'interior design']):
+                total_score += 0.25  # 25% boost for architecture/design outlets
+                print(f"   🚀 BOOST: +25% for architecture/design outlet: {outlet_name}")
+            elif any(infrastructure in outlet_name_lower for infrastructure in ['infoworld', 'techtarget', 'cloud computing news', 'itpro']):
+                total_score += 0.08  # 8% boost for infrastructure outlets (reduced from 15%)
+                print(f"   🚀 BOOST: +8% for infrastructure outlet: {outlet_name}")
+            elif any(development in outlet_name_lower for development in ['development', 'smashing magazine', 'dzone', 'the new stack', 'devops.com', 'sd times', 'i-programmer', 'opensource.com', 'infoq', 'mit technology review', 'ieee software', 'ai time journal']):
+                total_score += 0.05  # 5% boost for development outlets (reduced from 10%)
+                print(f"   🚀 BOOST: +5% for development outlet: {outlet_name}")
+            elif any(business in outlet_name_lower for business in ['forbes', 'fortune', 'business insider', 'wall street journal', 'bloomberg', 'reuters', 'cnbc', 'marketwatch', 'financial times', 'economist', 'harvard business review', 'mckinsey', 'bain', 'bcg', 'deloitte', 'pwc', 'kpmg', 'ernst', 'young', 'shrm', 'hr magazine', 'human resources', 'workplace', 'business', 'corporate', 'enterprise']):
+                total_score += 0.15  # 15% boost for business outlets
+                print(f"   🚀 BOOST: +15% for business outlet: {outlet_name}")
+            elif any(sustainability in outlet_name_lower for sustainability in ['green building', 'sustainable building', 'green construction', 'sustainable construction', 'green real estate', 'sustainable real estate', 'green property', 'sustainable property', 'green development', 'sustainable development', 'green infrastructure', 'sustainable infrastructure', 'green technology', 'sustainable technology', 'green innovation', 'sustainable innovation', 'green investment', 'sustainable investment', 'green finance', 'sustainable finance', 'green energy', 'sustainable energy', 'green design', 'sustainable design', 'green architecture', 'sustainable architecture', 'green engineering', 'sustainable engineering', 'green management', 'sustainable management', 'green operations', 'sustainable operations', 'green maintenance', 'sustainable maintenance', 'green renovation', 'sustainable renovation', 'green retrofit', 'sustainable retrofit', 'green esg', 'sustainable esg', 'green environmental', 'sustainable environmental', 'environmental', 'sustainability', 'green', 'clean energy', 'renewable energy', 'carbon', 'emissions', 'net zero', 'esg']):
+                total_score += 0.20  # 20% boost for sustainability outlets
+                print(f"   🚀 BOOST: +20% for sustainability outlet: {outlet_name}")
+            elif any(education in outlet_name_lower for education in ['chronicle of higher education', 'education', 'academic', 'university', 'college', 'higher education']):
+                total_score += 0.05  # 5% boost for education outlets
+                print(f"   🚀 BOOST: +5% for education outlet: {outlet_name}")
+            # Note: Irrelevant outlets are now completely suppressed via suppressed_outlets list
+            # No need for penalties since they won't appear in results
+            else:
+                print(f"   ℹ️ NO BOOST: No specific boost/penalty for {outlet_name}")
         elif industry == "Healthcare & Health Tech Leaders":
-            # Boost for healthcare outlets
-            if any(healthcare in outlet_name_lower for healthcare in ['modern healthcare', 'healthcare it news', 'hit consultant', 'medcity news', 'beckers hospital review']):
-                total_score += 0.3  # 30% boost for healthcare outlets
+            print(f"   🏥 Processing Healthcare & Health Tech Leaders for {outlet_name}")
+            # Boost for premium healthcare outlets
+            if any(premium in outlet_name_lower for premium in ['modern healthcare', 'healthcare it news', 'hit consultant', 'medcity news', 'beckers hospital review', 'fierce healthcare', 'himss media', 'healthcare innovation', 'stat news', 'healthleaders', 'healthcare dive']):
+                total_score += 0.5  # 50% boost for premium healthcare outlets
+                print(f"   🚀 BOOST: +50% for premium healthcare outlet: {outlet_name}")
+            elif any(tier2 in outlet_name_lower for tier2 in ['healthcare design', 'health data management', 'healthcare finance news', 'beckers hospital review', 'healthcare innovation']):
+                total_score += 0.3  # 30% boost for tier 2 healthcare outlets
+                print(f"   🚀 BOOST: +30% for tier 2 healthcare outlet: {outlet_name}")
+            # Penalize irrelevant outlets for healthcare
+            elif any(irrelevant in outlet_name_lower for irrelevant in ['the next web', 'cloud computing news', 'techtarget', 'techcrunch', 'venturebeat', 'wired', 'the verge', 'ars technica', 'engadget', 'gizmodo', 'techradar', 'infoworld', 'cio dive', 'devops.com', 'itpro', 'the decoder', 'techdirt']):
+                total_score -= 0.4  # 40% penalty for irrelevant tech outlets
+                print(f"   ⚠️ PENALTY: -40% for irrelevant outlet: {outlet_name}")
+            else:
+                print(f"   ℹ️ NO BOOST: No specific boost/penalty for {outlet_name}")
         elif industry == "Cybersecurity Experts":
-            print(f"   🔒 DEBUG: Processing Cybersecurity Experts for {outlet_name}")
             # Boost for premium cybersecurity outlets
             if any(premium in outlet_name_lower for premium in ['dark reading', 'securityweek', 'sc magazine', 'security boulevard', 'bleepingcomputer', 'cyber defense magazine', 'the hacker news', 'infosecurity magazine']):
                 total_score += 0.5  # 50% boost for premium cybersecurity outlets
-                print(f"   🚀 BOOST: +50% for premium cybersecurity outlet: {outlet_name}")
             elif any(tier2 in outlet_name_lower for tier2 in ['cio dive', 'itpro', 'devops.com', 'cloud computing news', 'techtalks', 'cloud native now', 'quantum insider', 'hit consultant']):
                 total_score += 0.3  # 30% boost for tier 2 cybersecurity outlets
-                print(f"   🚀 BOOST: +30% for tier 2 cybersecurity outlet: {outlet_name}")
             # Penalize irrelevant outlets for cybersecurity
             elif any(irrelevant in outlet_name_lower for irrelevant in ['time', 'usa today', 'fast company', 'techradar', 'wired', 'healthcare it news', 'world economic forum', 'the guardian', 'mother jones', 'washington post', 'modern healthcare', 'environment+energy leader', 'american banker', 'banking dive', 'fintech magazine', 'infoworld', 'the verge', 'the decoder']):
                 total_score -= 0.4  # 40% penalty for irrelevant outlets
-                print(f"   ⚠️ PENALTY: -40% for irrelevant outlet: {outlet_name}")
-            else:
-                print(f"   ℹ️ NO BOOST: No specific boost/penalty for {outlet_name}")
         elif industry == "Finance & Fintech Leaders":
-            print(f"   🏦 DEBUG: Processing Finance & Fintech Leaders for {outlet_name}")
             # Boost for premium finance outlets
             if any(premium in outlet_name_lower for premium in ['bloomberg', 'reuters', 'financial times', 'wall street journal', 'wsj', 'cnbc', 'fortune', 'forbes']):
                 total_score += 0.5  # 50% boost for premium finance outlets
-                print(f"   🚀 BOOST: +50% for premium finance outlet: {outlet_name}")
             elif any(fintech in outlet_name_lower for fintech in ['fintech magazine', 'american banker', 'banking dive', 'payments dive', 'banking technology', 'finextra']):
                 total_score += 0.4  # 40% boost for fintech outlets
-                print(f"   🚀 BOOST: +40% for fintech outlet: {outlet_name}")
             elif any(business in outlet_name_lower for business in ['business insider', 'the economist', 'marketwatch', 'yahoo finance', 'cnn business']):
                 total_score += 0.3  # 30% boost for business finance outlets
-                print(f"   🚀 BOOST: +30% for business finance outlet: {outlet_name}")
             # Penalize irrelevant outlets for finance
             elif any(irrelevant in outlet_name_lower for irrelevant in ['cloud computing', 'techtarget', 'gizmodo', 'factor this', 'renewable energy', 'the hill', 'the decoder', 'dark reading', 'usa today', 'the hacker news', 'time', 'fast company', 'techradar', 'wired', 'healthcare it news', 'securityweek', 'world economic forum', 'the guardian', 'mother jones', 'washington post', 'modern healthcare', 'environment+energy leader', 'cio dive', 'infoworld']):
                 total_score -= 0.4  # 40% penalty for irrelevant outlets
-                print(f"   ⚠️ PENALTY: -40% for irrelevant outlet: {outlet_name}")
-            else:
-                print(f"   ℹ️ NO BOOST: No specific boost/penalty for {outlet_name}")
         elif industry == "Education & Policy Leaders":
             # Boost for education and policy outlets
             if any(education in outlet_name_lower for education in ['edtech magazine', 'chronicle of higher education', 'education week', 'inside higher ed', 'campus technology']):
@@ -2035,48 +2190,51 @@ class OutletMatcher:
             elif any(irrelevant in outlet_name_lower for irrelevant in ['modern healthcare', 'bleepingcomputer', 'construction dive', 'supply chain', 'food processing', 'energy central', 'utility dive']):
                 total_score -= 0.3  # 30% penalty for irrelevant outlets
         elif industry == "Tech Professionals":
-            print(f"   💻 DEBUG: Processing Tech Professionals for {outlet_name}")
             # Boost for tech outlets
             if any(tech in outlet_name_lower for tech in ['techcrunch', 'venturebeat', 'the next web', 'wired', 'ars technica', 'mit technology review', 'ieee', 'acm']):
                 total_score += 0.4  # 40% boost for tech outlets
-                print(f"   🚀 BOOST: +40% for tech outlet: {outlet_name}")
             elif any(software in outlet_name_lower for software in ['github', 'stack overflow', 'dev.to', 'hacker news', 'techdirt']):
                 total_score += 0.3  # 30% boost for software outlets
-                print(f"   🚀 BOOST: +30% for software outlet: {outlet_name}")
             # Penalize irrelevant outlets for tech
             elif any(irrelevant in outlet_name_lower for irrelevant in ['time', 'usa today', 'fast company', 'healthcare it news', 'world economic forum', 'the guardian', 'mother jones', 'washington post', 'modern healthcare', 'environment+energy leader', 'american banker', 'banking dive', 'fintech magazine', 'infoworld', 'the decoder']):
                 total_score -= 0.4  # 40% penalty for irrelevant outlets
-                print(f"   ⚠️ PENALTY: -40% for irrelevant outlet: {outlet_name}")
-            else:
-                print(f"   ℹ️ NO BOOST: No specific boost/penalty for {outlet_name}")
         elif industry == "Business Executives":
-            print(f"   💼 DEBUG: Processing Business Executives for {outlet_name}")
             # Boost for business outlets
             if any(business in outlet_name_lower for business in ['harvard business review', 'mckinsey', 'bain', 'bcg', 'strategy+business', 'inc', 'fast company']):
                 total_score += 0.4  # 40% boost for business outlets
-                print(f"   🚀 BOOST: +40% for business outlet: {outlet_name}")
             elif any(executive in outlet_name_lower for executive in ['fortune', 'forbes', 'business insider', 'bloomberg', 'wsj', 'financial times']):
                 total_score += 0.3  # 30% boost for executive outlets
-                print(f"   🚀 BOOST: +30% for executive outlet: {outlet_name}")
             # Penalize irrelevant outlets for business
             elif any(irrelevant in outlet_name_lower for irrelevant in ['time', 'usa today', 'techradar', 'wired', 'healthcare it news', 'world economic forum', 'the guardian', 'mother jones', 'washington post', 'modern healthcare', 'environment+energy leader', 'american banker', 'banking dive', 'fintech magazine', 'infoworld', 'the decoder']):
                 total_score -= 0.4  # 40% penalty for irrelevant outlets
-                print(f"   ⚠️ PENALTY: -40% for irrelevant outlet: {outlet_name}")
-            else:
-                print(f"   ℹ️ NO BOOST: No specific boost/penalty for {outlet_name}")
         elif industry == "Startup Founders & Entrepreneurs":
-            print(f"   🚀 DEBUG: Processing Startup Founders & Entrepreneurs for {outlet_name}")
             # Boost for startup outlets
             if any(startup in outlet_name_lower for startup in ['techcrunch', 'venturebeat', 'startup grind', 'entrepreneur', 'inc', 'fast company']):
                 total_score += 0.4  # 40% boost for startup outlets
-                print(f"   🚀 BOOST: +40% for startup outlet: {outlet_name}")
             elif any(venture in outlet_name_lower for venture in ['pitchbook', 'crunchbase', 'angellist', 'y combinator']):
                 total_score += 0.3  # 30% boost for venture outlets
-                print(f"   🚀 BOOST: +30% for venture outlet: {outlet_name}")
             # Penalize irrelevant outlets for startups
             elif any(irrelevant in outlet_name_lower for irrelevant in ['time', 'usa today', 'techradar', 'wired', 'healthcare it news', 'world economic forum', 'the guardian', 'mother jones', 'washington post', 'modern healthcare', 'environment+energy leader', 'american banker', 'banking dive', 'fintech magazine', 'infoworld', 'the decoder']):
                 total_score -= 0.4  # 40% penalty for irrelevant outlets
-                print(f"   ⚠️ PENALTY: -40% for irrelevant outlet: {outlet_name}")
+        elif industry == "General Public":
+            print(f"   👥 Processing General Public for {outlet_name}")
+            # Boost for consumer-focused outlets
+            if any(consumer in outlet_name_lower for consumer in ['consumer reports', 'good housekeeping', 'real simple', 'better homes', 'readers digest', 'family circle', 'womans day', 'cosmopolitan', 'elle', 'vogue', 'people', 'entertainment weekly']):
+                total_score += 0.5  # 50% boost for consumer lifestyle outlets
+                print(f"   🚀 BOOST: +50% for consumer lifestyle outlet: {outlet_name}")
+            elif any(news in outlet_name_lower for news in ['usa today', 'cnn', 'abc news', 'cbs news', 'nbc news', 'npr', 'pbs', 'local news', 'associated press', 'reuters']):
+                total_score += 0.4  # 40% boost for general news outlets
+                print(f"   🚀 BOOST: +40% for general news outlet: {outlet_name}")
+            elif any(local in outlet_name_lower for local in ['boston globe', 'chicago tribune', 'la times', 'washington post', 'new york times', 'daily mail', 'huffpost']):
+                total_score += 0.3  # 30% boost for local/regional news
+                print(f"   🚀 BOOST: +30% for local/regional news outlet: {outlet_name}")
+            elif any(health in outlet_name_lower for health in ['webmd', 'healthline', 'mayo clinic', 'prevention', 'health', 'wellness', 'fitness', 'self']):
+                total_score += 0.25  # 25% boost for health/wellness outlets
+                print(f"   🚀 BOOST: +25% for health/wellness outlet: {outlet_name}")
+            # Penalize business/financial/healthcare outlets for general public
+            elif any(business in outlet_name_lower for business in ['fortune', 'forbes', 'wall street journal', 'bloomberg', 'financial times', 'business insider', 'fast company', 'harvard business review', 'mckinsey', 'techcrunch', 'venturebeat', 'wired', 'the verge', 'healthcare it news', 'modern healthcare', 'healthcare design', 'healthcare innovation', 'the economist', 'national geographic']):
+                total_score -= 0.6  # 60% penalty for business/tech/healthcare outlets
+                print(f"   ⚠️ PENALTY: -60% for business/tech/healthcare outlet not suitable for general public: {outlet_name}")
             else:
                 print(f"   ℹ️ NO BOOST: No specific boost/penalty for {outlet_name}")
         
@@ -2088,23 +2246,94 @@ class OutletMatcher:
         return final_score
     
     def _get_audience_min_threshold(self, industry: str) -> float:
-        """Get audience-specific minimum threshold for fallback candidates."""
-        # More flexible thresholds for audiences with fewer outlets
-        flexible_audiences = [
-            "Sustainability & Climate Leaders",
-            "Healthcare & Health Tech Leaders", 
-            "Education & Policy Leaders",
-            "Real Estate & Built Environment",
-            "Finance & Fintech Leaders",
-            "General Public"
-        ]
+        """Get minimum score threshold for audience"""
+        if industry in self.AUDIENCE_RULES:
+            return self.AUDIENCE_RULES[industry].get("score_min", 0.30)
+        return 0.30  # Default threshold
+    
+    def _should_suppress_outlet(self, outlet_name: str, audience: str, abstract: str) -> bool:
+        """Check if outlet should be suppressed based on audience rules and abstract content"""
+        if audience not in self.AUDIENCE_RULES:
+            return False
+            
+        rules = self.AUDIENCE_RULES[audience]
+        suppressed_outlets = rules.get("suppressed_outlets", [])
+        allow_keywords = rules.get("allow_keywords", [])
         
-        if industry in flexible_audiences:
-            return 0.25  # Very flexible for niche audiences
-        elif industry == "Investors & Analysts":
-            return 0.50  # Strict for investment (many outlets available)
+        # Check if outlet is in suppressed list
+        outlet_name_lower = outlet_name.lower()
+        
+        # Direct check for specific problematic outlets
+        problematic_outlets = ['infoworld', 'itpro', 'cloud computing news', 'techtarget', 'cloud native now', 'chronicle of higher education', 'shrm']
+        is_problematic = any(problematic in outlet_name_lower for problematic in problematic_outlets)
+        
+        # Also check for common tech-related terms that are irrelevant for real estate
+        if audience == "Real Estate & Built Environment":
+            tech_terms = ['tech', 'cloud', 'software', 'devops', 'programming', 'coding', 'developer', 'it pro', 'information technology']
+            has_tech_terms = any(term in outlet_name_lower for term in tech_terms)
+            if has_tech_terms:
+                print(f"   🚫 TECH TERMS: {outlet_name} contains tech-related terms")
+                is_problematic = True
+        
+        # Check against suppressed list
+        is_suppressed = any(suppressed.lower() == outlet_name_lower or suppressed.lower() in outlet_name_lower for suppressed in suppressed_outlets)
+        
+        # Combine both checks
+        should_suppress = is_problematic or is_suppressed
+        
+        if audience == "Real Estate & Built Environment":
+            print(f"   🔍 SUPPRESSION CHECK: {outlet_name} - checking against suppressed list: {suppressed_outlets}")
+            if is_problematic:
+                print(f"   🚫 PROBLEMATIC: {outlet_name} is in problematic outlets list")
+            if is_suppressed:
+                print(f"   🚫 SUPPRESSED: {outlet_name} is in suppressed list")
+            if should_suppress:
+                print(f"   🚫 WILL SUPPRESS: {outlet_name} (problematic: {is_problematic}, suppressed: {is_suppressed})")
+            else:
+                print(f"   ✅ NOT SUPPRESSED: {outlet_name} not in suppressed list")
+        
+        if not should_suppress:
+            return False
+            
+        # If suppressed, check if abstract contains allow keywords
+        abstract_lower = abstract.lower()
+        has_allow_keyword = any(keyword.lower() in abstract_lower for keyword in allow_keywords)
+        
+        if audience == "Real Estate & Built Environment" and should_suppress:
+            print(f"   🔍 ALLOW KEYWORDS CHECK: {outlet_name} - has allow keywords: {has_allow_keyword}")
+        
+        # Suppress if no allow keywords found
+        return not has_allow_keyword
+    
+    def _deduplicate_results(self, results: List[Dict]) -> List[Dict]:
+        """Remove duplicate outlets, keeping the highest scoring instance"""
+        if not self.DEDUPE_ENABLED:
+            return results
+            
+        by_outlet = {}
+        
+        for result in results:
+            outlet = result.get('outlet', {})
+            # Use outlet_id as primary key, fallback to outlet name
+            key = outlet.get('id') or outlet.get('Outlet Name') or outlet.get('outlet_name')
+            
+            if not key:
+                continue
+                
+            # Keep the highest scoring instance
+            if key not in by_outlet or result['score'] > by_outlet[key]['score']:
+                by_outlet[key] = result
+        
+        return list(by_outlet.values())
+    
+    def _normalize_ai_partnered(self, ai_partnered) -> str:
+        """Normalize AI partnered status to consistent string values"""
+        if ai_partnered is True:
+            return "Yes"
+        elif ai_partnered is False:
+            return "No"
         else:
-            return 0.30  # Default threshold
+            return self.AI_PARTNER_NULL_STATE
     
     def _generate_v3_explain_object(self, outlet: Dict, industry: str, score: float, is_fallback: bool) -> Dict:
         """Generate explain object for v3 matching."""
