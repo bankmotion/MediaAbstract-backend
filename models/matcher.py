@@ -1639,6 +1639,7 @@ class OutletMatcher:
                     real_estate_terms = ['construction', 'real estate', 'property', 'building', 'architecture', 'proptech', 'commercial', 'housing', 'development', 'facilities', 'leasing', 'mortgage', 'reit', 'inman', 'cretech', 'design', 'engineering', 'infrastructure', 'urban', 'planning', 'sustainability', 'green', 'energy', 'smart', 'technology', 'innovation', 'investment', 'finance', 'business', 'management', 'operations', 'maintenance', 'renovation', 'retrofit', 'esg', 'environmental']
                     is_real_estate = any(term in outlet_name for term in real_estate_terms)
                     
+                    
                     if is_real_estate and score >= 0.50:  # Balanced threshold for good fit
                         perfect_fit_outlets.append(result)
                         print(f"   ✅ PERFECT FIT: {result['outlet'].get('Outlet Name', '')} - {score:.3f}")
