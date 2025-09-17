@@ -1603,27 +1603,12 @@ class OutletMatcher:
                     'is_fallback': False
                 })
             
-            # Score fallback candidates if needed
+            # No fallback candidates - only use audience-tagged outlets
             if len(scored_results) < self.MIN_RESULTS:
-                print(f"🔄 Expanding to fallback candidates ({len(fallback_candidates)} available)")
-                fallback_added = 0
+                print(f"⚠️ WARNING: Only {len(scored_results)} audience-tagged outlets found for {industry}")
+                print(f"💡 This means there are very few outlets tagged for this audience in the database")
                 
-                # Get audience-specific minimum threshold
-                min_threshold = self._get_audience_min_threshold(industry)
-                
-                for outlet in fallback_candidates:
-                    score = self._compute_v3_score(abstract, outlet, industry, is_fallback=True)
-                    # Removed verbose debug output
-                    if score >= min_threshold:  # Use audience-specific minimum
-                        scored_results.append({
-                            'outlet': outlet,
-                            'score': score,
-                            'is_fallback': True
-                        })
-                        fallback_added += 1
-                print(f"   📊 Added {fallback_added} fallback candidates")
-            else:
-                print(f"✅ Sufficient primary candidates ({len(scored_results)}), skipping fallback")
+                print(f"✅ Using only audience-tagged outlets ({len(scored_results)})")
             
             # STEP 3: POST-PROCESSING
             print(f"🔧 STEP 3: Post-processing")
@@ -1918,7 +1903,7 @@ class OutletMatcher:
         
         for outlet in all_outlets:
             outlet_name = outlet.get('Outlet Name', '')
-            outlet_audience = outlet.get('Audience', '')
+            outlet_industry = outlet.get('Industry', '')  # Changed from 'Audience' to 'Industry'
             outlet_id = outlet.get('id', outlet.get('Outlet Name', ''))
             
             # Skip denied outlets
@@ -1961,65 +1946,40 @@ class OutletMatcher:
                     print(f"   🚫 SUPPRESSED: {outlet_name} (irrelevant for Real Estate)")
                 continue
             
-            # Primary candidates: outlets tagged with the selected audience
+            # AUDIENCE-FIRST FILTERING: Only outlets tagged with the selected audience are eligible
             # Handle semicolon-separated audiences in database
-            outlet_audiences = [aud.strip().lower() for aud in outlet_audience.split(';')]
+            outlet_industries = [ind.strip().lower() for ind in outlet_industry.split(';')]
             industry_lower = industry.lower()
             
-            # Check for exact match or partial match in audience list
-            is_primary_match = (
-                industry_lower == outlet_audience.lower() or  # Exact match
-                industry_lower in outlet_audiences or  # In semicolon-separated list
-                any(industry_lower in aud for aud in outlet_audiences) or  # Partial match
-                any(aud in industry_lower for aud in outlet_audiences)  # Reverse partial match
+            # Check if outlet is tagged for the selected audience (exact match only)
+            is_audience_tagged = (
+                industry_lower == outlet_industry.lower() or  # Exact match
+                industry_lower in outlet_industries  # In semicolon-separated list
             )
             
-            if is_primary_match:
+            if is_audience_tagged:
                 primary_candidates.append(outlet)
+                if industry == "Real Estate & Built Environment":
+                    print(f"   ✅ AUDIENCE TAGGED: {outlet_name} is tagged for {industry}")
             else:
                 audience_mismatch_count += 1
-            # Check if outlet matches fallback keywords
-            outlet_text = self._outlet_texts.get(outlet_id, '')
-            if outlet_text:
-                matched_keywords = [kw for kw in fallback_keywords if kw.lower() in outlet_text.lower()]
-                if matched_keywords:
-                    fallback_candidates.append(outlet)
-                else:
-                    # Additional fallback: check outlet name and description for relevance
-                    outlet_name_lower = outlet_name.lower()
-                    outlet_desc = outlet.get('Description', '').lower()
-                    
-                    # Check if outlet name or description contains relevant terms
-                    name_matches = [kw for kw in fallback_keywords if kw.lower() in outlet_name_lower]
-                    desc_matches = [kw for kw in fallback_keywords if kw.lower() in outlet_desc]
-                    
-                    if name_matches or desc_matches:
-                        fallback_candidates.append(outlet)
+                if industry == "Real Estate & Built Environment":
+                    print(f"   ❌ NOT AUDIENCE TAGGED: {outlet_name} not tagged for {industry} (has: {outlet_industries})")
+            # No fallback logic - only audience-tagged outlets are eligible
+            # This ensures strict audience-first filtering as requested
         
         # Removed verbose debug output
         
-        # Safety net: if we have very few candidates, add more outlets as fallback
-        total_candidates = len(primary_candidates) + len(fallback_candidates)
-        if total_candidates < 10:
-            print(f"   🚨 WARNING: Only {total_candidates} candidates found, expanding search...")
-            print(f"   📊 Primary candidates: {len(primary_candidates)}")
-            print(f"   📊 Fallback candidates: {len(fallback_candidates)}")
-            # Add outlets that weren't denied and don't match any audience
-            emergency_added = 0
-            for outlet in all_outlets:
-                outlet_name = outlet.get('Outlet Name', '')
-                if outlet not in primary_candidates and outlet not in fallback_candidates:
-                    # Skip denied outlets
-                    if not any(denied in outlet_name.lower() for denied in deny_outlets_lower):
-                        fallback_candidates.append(outlet)
-                        emergency_added += 1
-                        if emergency_added >= 30:  # Increased limit for Real Estate
-                            break
-            print(f"   🚨 Emergency fallback: Added {emergency_added} additional candidates")
+        # Safety net: if we have very few audience-tagged candidates, log warning
+        total_candidates = len(primary_candidates)
+        if total_candidates < 5:
+            print(f"   ⚠️ WARNING: Only {total_candidates} audience-tagged candidates found for {industry}")
+            print(f"   📋 This means there are very few outlets tagged for this audience in the database")
+            print(f"   💡 Consider adding more outlets with the '{industry}' audience tag")
         
         # Removed verbose debug output
         
-        return primary_candidates, fallback_candidates
+        return primary_candidates, []  # No fallback candidates - only audience-tagged outlets
     
     def _compute_v3_score(self, abstract: str, outlet: Dict, industry: str, is_fallback: bool = False) -> float:
         """Compute v3 scoring using the new weighted formula."""
