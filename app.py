@@ -32,7 +32,7 @@ def home():
     return jsonify({"message": "Flask is connected to Supabase!"})
 
 if __name__ == "__main__":
-    # host = "146.190.131.130"  # Use the server's IP address directly
+    host = "146.190.131.130"  # Use the server's IP address directly
     host = "127.0.0.1"
     print(f"Starting server on host: {host}")
     app.run(host=host, port=PORT, debug=True, use_reloader=False)
