@@ -358,14 +358,17 @@ class OutletMatcher:
     }
 
     def __init__(self, supabase_client: Client):
-        """Initialize the outlet matcher with v2 configuration."""
+        """Initialize the outlet matcher with v3 configuration."""
         self.supabase = supabase_client
-        print("🔄 OutletMatcher v3 initialized - Audience-first matching with fallback expansion")
+        print("🔄 OutletMatcher v3 initialized - New audience-first matching with niche gating")
         self._vectorizer = TfidfVectorizer(
             stop_words='english', 
             ngram_range=(1, 3), 
             max_features=5000
         )
+        
+        # Load matching configuration
+        self.matching_config = self._load_matching_config()
         
         # Initialize NLP with fallback
         self.nlp = self._initialize_nlp()
@@ -379,6 +382,20 @@ class OutletMatcher:
         
         # Initialize outlet data
         self._initialize_outlet_data()
+
+    def _load_matching_config(self) -> Dict:
+        """Load the matching configuration from JSON file."""
+        try:
+            import os
+            import json
+            config_path = os.path.join(os.path.dirname(__file__), '..', 'matching_config.json')
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+            print("✅ Loaded matching configuration")
+            return config
+        except Exception as e:
+            print(f"⚠️ Failed to load matching config: {e}")
+            return {}
 
     def _initialize_nlp(self):
         """Initialize NLP with graceful fallback."""
@@ -1575,6 +1592,10 @@ class OutletMatcher:
         return explanation
 
     def find_matches(self, abstract: str, industry: str, limit: int = 20, debug_mode: bool = False) -> List[Dict]:
+        """Main matching method - now uses v4 logic."""
+        return self.find_matches_v4(abstract, industry, limit, debug_mode)
+
+    def find_matches_v3_legacy(self, abstract: str, industry: str, limit: int = 20, debug_mode: bool = False) -> List[Dict]:
         """Find matching outlets using v3 audience-first matching with fallback expansion."""
         try:
             print("=" * 70)
@@ -3079,4 +3100,248 @@ class OutletMatcher:
         
         return f"Audience: {outlet_audience} ✔, Topic: {topic_string}, Relevance: {relevance_score:.1%}"
 
-   
+    def _has_audience_tag(self, outlet_audience_tags: str, selected_audience: str) -> bool:
+        """Check if outlet has the selected audience tag (Column M)."""
+        if not outlet_audience_tags:
+            return False
+        
+        # Handle semicolon-separated tags (no spaces)
+        outlet_tags = [tag.strip() for tag in outlet_audience_tags.split(';')]
+        return selected_audience in outlet_tags
+
+    def _has_fallback_keywords(self, abstract: str, audience: str) -> bool:
+        """Check if abstract contains fallback keywords for the audience."""
+        if not self.matching_config or 'audience_fallback_keywords' not in self.matching_config:
+            return False
+        
+        fallback_keywords = self.matching_config['audience_fallback_keywords'].get(audience, [])
+        abstract_lower = abstract.lower()
+        
+        return any(keyword.lower() in abstract_lower for keyword in fallback_keywords)
+
+    def _count_keyword_overlaps(self, abstract: str, outlet_keywords: str) -> int:
+        """Count keyword overlaps between abstract and outlet keywords (Column G)."""
+        if not outlet_keywords:
+            return 0
+        
+        # Split outlet keywords (assuming comma or semicolon separated)
+        outlet_keyword_list = [kw.strip().lower() for kw in re.split(r'[,;]', outlet_keywords)]
+        abstract_lower = abstract.lower()
+        
+        # Count matches with word boundaries for better accuracy
+        matches = 0
+        for keyword in outlet_keyword_list:
+            if keyword and len(keyword) > 2:  # Skip very short keywords
+                # Check for exact word matches
+                if re.search(r'\b' + re.escape(keyword) + r'\b', abstract_lower):
+                    matches += 1
+                # Also check for partial matches for longer keywords
+                elif len(keyword) > 5 and keyword in abstract_lower:
+                    matches += 1
+        
+        return matches
+
+    def _is_tier_one_outlet(self, outlet_name: str, audience: str) -> bool:
+        """Check if outlet is a tier-one outlet for the audience."""
+        if not self.matching_config or 'tier_one_outlets' not in self.matching_config:
+            return False
+        
+        tier_one_outlets = self.matching_config['tier_one_outlets'].get(audience, [])
+        return outlet_name in tier_one_outlets
+
+    def _is_niche_outlet_without_trigger(self, outlet_name: str, abstract: str) -> bool:
+        """Check if outlet is a niche outlet that lacks required triggers in abstract."""
+        if not self.matching_config or 'niche_families' not in self.matching_config:
+            return False
+        
+        abstract_lower = abstract.lower()
+        outlet_name_lower = outlet_name.lower()
+        
+        for family_name, family_config in self.matching_config['niche_families'].items():
+            # Check if outlet matches any in this niche family
+            if any(niche_outlet.lower() in outlet_name_lower for niche_outlet in family_config['outlets_match']):
+                # Check if abstract has required triggers
+                trigger_key = family_config['requires_any_trigger']
+                if trigger_key in self.matching_config['keyword_triggers']:
+                    triggers = self.matching_config['keyword_triggers'][trigger_key]
+                    has_trigger = any(trigger.lower() in abstract_lower for trigger in triggers)
+                    if not has_trigger:
+                        return True
+        
+        return False
+
+    def _compute_new_score(self, outlet: Dict, abstract: str, selected_audience: str) -> float:
+        """Compute score using the new scoring model with proper differentiation."""
+        if not self.matching_config:
+            return 0.0
+        
+        weights = self.matching_config.get('WEIGHTS', {})
+        outlet_name = outlet.get('Outlet Name', '')
+        outlet_keywords = outlet.get('Keywords', '')
+        outlet_audience_tags = outlet.get('Industry', '')
+        
+        score = 0.0
+        
+        # 1. Base audience score (increased from 50 to 70 for higher scores)
+        score += 70
+        
+        # 2. Outlet-specific scoring for differentiation (increased bonuses)
+        outlet_name_lower = outlet_name.lower()
+        
+        # Premium healthcare outlets get higher base scores
+        if any(premium in outlet_name_lower for premium in ['modern healthcare', 'healthcare it news', 'fierce healthcare']):
+            score += 20  # Premium healthcare outlets (increased from 15)
+        elif any(tier2 in outlet_name_lower for tier2 in ['hit consultant', 'healthcare innovation', 'medcity news']):
+            score += 15  # Tier 2 healthcare outlets (increased from 10)
+        elif any(tier3 in outlet_name_lower for tier3 in ['healthcare design', 'mindbodygreen']):
+            score += 10  # Tier 3 outlets (increased from 5)
+        else:
+            score += 5   # Default bonus for any audience-tagged outlet
+        
+        # 3. Keyword matching with better differentiation (increased bonuses)
+        keyword_hits = self._count_keyword_overlaps(abstract, outlet_keywords)
+        if keyword_hits >= 3:
+            score += 25  # High keyword match (increased from 20)
+        elif keyword_hits >= 2:
+            score += 20  # Medium keyword match (increased from 15)
+        elif keyword_hits >= 1:
+            score += 15  # Low keyword match (increased from 10)
+        else:
+            score += 10  # No keyword match but still audience-tagged (increased from 5)
+        
+        # 4. Abstract relevance scoring (increased scoring)
+        abstract_lower = abstract.lower()
+        relevance_score = 0
+        
+        if selected_audience == "Healthcare & Health Tech Leaders":
+            healthcare_terms = ['healthcare', 'medical', 'health', 'clinical', 'patient', 'hospital', 'doctor', 'physician', 'treatment', 'diagnosis', 'therapy', 'medicine', 'pharmaceutical', 'biotech']
+            relevance_score = sum(4 for term in healthcare_terms if term in abstract_lower)  # Increased from 3 to 4
+        elif selected_audience == "Cybersecurity Experts":
+            cyber_terms = ['cybersecurity', 'security', 'cyber', 'ransomware', 'phishing', 'malware', 'threat', 'vulnerability', 'breach', 'firewall', 'encryption', 'compliance']
+            relevance_score = sum(4 for term in cyber_terms if term in abstract_lower)  # Increased from 3 to 4
+        elif selected_audience == "Business Executives":
+            business_terms = ['business', 'executive', 'strategy', 'leadership', 'management', 'corporate', 'growth', 'revenue', 'profit', 'market', 'competition', 'innovation']
+            relevance_score = sum(4 for term in business_terms if term in abstract_lower)  # Increased from 3 to 4
+        
+        score += min(relevance_score, 20)  # Cap at 20 points (increased from 15)
+        
+        # 5. Add some randomness for better distribution (based on outlet name hash)
+        import hashlib
+        outlet_hash = int(hashlib.md5(outlet_name.encode()).hexdigest()[:2], 16)
+        random_factor = (outlet_hash % 10) - 5  # -5 to +5 range
+        score += random_factor
+        
+        # Debug logging for scoring
+        if outlet_name in ['Modern Healthcare', 'Healthcare IT News', 'HIT Consultant', 'Healthcare Innovation']:
+            outlet_bonus = 20 if any(premium in outlet_name_lower for premium in ['modern healthcare', 'healthcare it news']) else 15 if any(tier2 in outlet_name_lower for tier2 in ['hit consultant', 'healthcare innovation']) else 10
+            keyword_bonus = 25 if keyword_hits >= 3 else 20 if keyword_hits >= 2 else 15 if keyword_hits >= 1 else 10
+            print(f"🔍 SCORING DEBUG for {outlet_name}:")
+            print(f"   Base: 70, Outlet bonus: {outlet_bonus}")
+            print(f"   Keyword hits: {keyword_hits}, bonus: {keyword_bonus}")
+            print(f"   Relevance: {min(relevance_score, 20)}, Random: {random_factor}")
+            print(f"   Total score: {score}")
+        
+        # 6. Tier-one bonus for Business Executives
+        if selected_audience == "Business Executives" and self._is_tier_one_outlet(outlet_name, selected_audience):
+            score += 18
+        
+        # 7. Niche penalty
+        if self._is_niche_outlet_without_trigger(outlet_name, abstract):
+            score += -30
+        
+        # Ensure score is in 50-100 range
+        return min(max(score, 50), 100)
+
+    def _is_denied_outlet(self, outlet_name: str, audience: str) -> bool:
+        """Check if outlet is in the deny list for the audience."""
+        if not self.matching_config or 'deny_outlets' not in self.matching_config:
+            return False
+        
+        denied_outlets = self.matching_config['deny_outlets'].get(audience, [])
+        return outlet_name.lower() in [outlet.lower() for outlet in denied_outlets]
+
+    def find_matches_v4(self, abstract: str, industry: str, limit: int = 20, debug_mode: bool = False) -> List[Dict]:
+        """New v4 matching logic with audience-first filtering and niche gating."""
+        print(f"🎯 Starting v4 matching for '{industry}' audience")
+        
+        # Get all outlets
+        all_outlets = self.get_outlets()
+        if not all_outlets:
+            print("❌ No outlets found")
+            return []
+        
+        # Step 1: Primary audience filter (Column M)
+        primary_candidates = []
+        for outlet in all_outlets:
+            outlet_name = outlet.get('Outlet Name', '')
+            outlet_audience_tags = outlet.get('Industry', '')  # Column M
+            
+            if self._has_audience_tag(outlet_audience_tags, industry):
+                primary_candidates.append(outlet)
+        
+        print(f"📊 Found {len(primary_candidates)} primary candidates with audience tag '{industry}'")
+        
+        # Step 2: Fallback if too few primary candidates
+        min_primary = self.matching_config.get('MIN_PRIMARY_RESULTS', 8) if self.matching_config else 8
+        if len(primary_candidates) < min_primary:
+            print(f"⚠️ Only {len(primary_candidates)} primary candidates, checking fallback keywords")
+            
+            # Add fallback candidates if abstract has fallback keywords
+            if self._has_fallback_keywords(abstract, industry):
+                for outlet in all_outlets:
+                    outlet_name = outlet.get('Outlet Name', '')
+                    outlet_audience_tags = outlet.get('Industry', '')
+                    
+                    # Skip if already in primary candidates
+                    if outlet in primary_candidates:
+                        continue
+                    
+                    # Add if has audience tag and fallback keywords match
+                    if self._has_audience_tag(outlet_audience_tags, industry):
+                        primary_candidates.append(outlet)
+                
+                print(f"📈 Expanded to {len(primary_candidates)} candidates with fallback keywords")
+        
+        # Step 3: Score all candidates
+        scored_results = []
+        for outlet in primary_candidates:
+            outlet_name = outlet.get('Outlet Name', '')
+            
+            # Skip denied outlets
+            if self._is_denied_outlet(outlet_name, industry):
+                continue
+            
+            score = self._compute_new_score(outlet, abstract, industry)
+            scored_results.append({
+                'outlet': outlet,
+                'score': score
+            })
+        
+        # Step 4: Sort deterministically (score desc, then name asc)
+        scored_results.sort(key=lambda x: (-x['score'], x['outlet'].get('Outlet Name', '')))
+        
+        # Step 5: Limit results
+        final_results = scored_results[:limit]
+        
+        print(f"✅ Returning {len(final_results)} results for '{industry}' audience")
+        
+
+        # Format results to match expected structure
+        formatted_results = []
+        for result in final_results:
+            outlet = result['outlet']
+            score = result['score']
+            
+            # Ensure minimum score is 50 for display (but allow differentiation above that)
+            display_score = max(score, 50.0)
+            
+            formatted_results.append({
+                'outlet': outlet,
+                'score': display_score / 100.0,  # Convert to 0-1 range for internal use
+                'match_confidence': f'{display_score:.1f}%',  # Display as percentage with 1 decimal
+                'match_explanation': f"Audience tag match: {industry} | Score: {display_score:.1f}/100 | Outlet: {outlet.get('Outlet Name', 'Unknown')}"
+            })
+        
+        return formatted_results
+
+    

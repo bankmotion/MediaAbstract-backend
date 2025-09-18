@@ -1,0 +1,88 @@
+{
+  "MIN_PRIMARY_RESULTS": 8,
+  "MAX_KEYWORD_BONUS": 25,
+
+  "WEIGHTS": {
+    "audience_primary": 50,
+    "audience_secondary": 15,
+    "keyword_hit": 8,
+    "tier_one_bonus": 18,
+    "niche_sans_trigger_penalty": -30
+  },
+
+  "tier_one_outlets": {
+    "Business Executives": [
+      "The Wall Street Journal",
+      "Financial Times",
+      "Bloomberg",
+      "The Economist",
+      "Fortune",
+      "Harvard Business Review",
+      "Business Insider",
+      "TIME",
+      "The Atlantic",
+      "Fast Company",
+      "Inc."
+    ]
+  },
+
+  "keyword_triggers": {
+    "retail": ["retail", "ecommerce", "e-commerce", "shopping", "store", "stores", "consumer goods", "CPG", "omnichannel"],
+    "food": ["food", "agriculture", "agri", "farming", "beverage", "dairy", "packaged goods"],
+    "supply_chain": ["supply chain", "logistics", "shipping", "warehousing", "warehouse", "freight", "distribution", "last-mile", "transportation"],
+    "hr": ["HR", "human resources", "workforce", "hiring", "recruiting", "retention", "benefits", "compensation", "DEI", "labor"],
+    "construction": ["construction", "building", "architecture", "infrastructure", "contractor", "engineering"],
+    "banking_finance": ["bank", "banking", "finance", "fintech", "credit", "lending", "payments", "card", "treasury"],
+    "healthcare": ["hospital", "healthcare", "patient", "provider", "medical", "clinician", "clinical", "EHR", "pharma", "biotech", "life sciences", "HIPAA"],
+    "energy_climate": ["energy", "utility", "utilities", "climate", "sustainability", "emissions", "carbon", "renewable", "EV", "battery", "decarbonization", "DLE"],
+    "education": ["education", "edtech", "higher ed", "university", "school", "student", "teacher", "privacy policy"],
+    "developer_it": ["developer", "engineering", "software", "IT", "cloud", "DevOps", "Kubernetes", "serverless", "infrastructure", "SDK", "API", "low-code", "no-code"],
+    "cybersecurity": ["cybersecurity", "security", "CISO", "ransomware", "phishing", "zero trust", "SOC", "threat", "vulnerability", "incident response", "SIEM"],
+    "real_estate": ["real estate", "property", "CRE", "proptech", "building", "construction", "housing", "built environment"]
+  },
+
+  "audience_fallback_keywords": {
+    "Business Executives": ["CEO", "executive", "leadership", "board", "strategy", "growth", "risk", "operations"],
+    "Tech Professionals": ["developer", "engineering", "software", "cloud", "DevOps", "API", "Kubernetes", "infrastructure"],
+    "Cybersecurity Experts": ["cybersecurity", "CISO", "ransomware", "phishing", "zero trust", "threat intel", "SOC"],
+    "Startup Founders & Entrepreneurs": ["startup", "founder", "entrepreneur", "seed", "Series A", "go-to-market", "runway"],
+    "Marketing & PR Professionals": ["marketing", "PR", "communications", "brand", "earned media", "campaign"],
+    "Investors & Analysts": ["investor", "VC", "private equity", "markets", "valuation", "IPO", "fundraising"],
+    "Healthcare & Health Tech Leaders": ["healthcare", "hospital", "EHR", "clinical", "patient", "HIPAA", "payer"],
+    "Education & Policy Leaders": ["education", "policy", "regulation", "compliance", "governance"],
+    "Sustainability & Climate Leaders": ["sustainability", "climate", "carbon", "renewable", "ESG", "decarbonization"],
+    "Real Estate & Built Environment": ["real estate", "construction", "buildings", "infrastructure", "proptech"],
+    "Finance & Fintech Leaders": ["finance", "banking", "payments", "fintech", "lending", "treasury"],
+    "General Public": ["consumer", "everyday", "trend", "lifestyle"]
+  },
+
+  "deny_outlets": {
+    "Business Executives": [],
+    "Tech Professionals": [],
+    "Cybersecurity Experts": [],
+    "Startup Founders & Entrepreneurs": [],
+    "Marketing & PR Professionals": [],
+    "Investors & Analysts": [],
+    "Healthcare & Health Tech Leaders": [],
+    "Education & Policy Leaders": [],
+    "Sustainability & Climate Leaders": [],
+    "Real Estate & Built Environment": [],
+    "Finance & Fintech Leaders": [],
+    "General Public": []
+  },
+
+  "niche_families": {
+    "Retail": { "outlets_match": ["Retail Dive", "Retail TouchPoints", "Retail Touch Points"], "requires_any_trigger": "retail" },
+    "Food": { "outlets_match": ["Food Processing", "Food Dive"], "requires_any_trigger": "food" },
+    "SupplyChain": { "outlets_match": ["Supply Chain Dive", "Supply Chain Management Review", "SCM Review"], "requires_any_trigger": "supply_chain" },
+    "HR": { "outlets_match": ["HR Dive", "SHRM"], "requires_any_trigger": "hr" },
+    "Construction": { "outlets_match": ["Construction Dive", "Engineering News-Record", "ENR"], "requires_any_trigger": "construction" },
+    "BankingFinance": { "outlets_match": ["American Banker", "Banking Dive", "Payments Dive"], "requires_any_trigger": "banking_finance" },
+    "Healthcare": { "outlets_match": ["Modern Healthcare", "Healthcare IT News", "MedCity News", "Healthcare Innovation", "HIT Consultant", "Healthcare Design"], "requires_any_trigger": "healthcare" },
+    "EnergyClimate": { "outlets_match": ["Energy Central", "Environment+Energy Leader", "Factor This!", "Trellis"], "requires_any_trigger": "energy_climate" },
+    "Education": { "outlets_match": ["The Chronicle of Higher Education", "EdTech Magazine"], "requires_any_trigger": "education" },
+    "DeveloperIT": { "outlets_match": ["InfoWorld", "InfoQ", "SD Times", "The New Stack", "DevOps.com", "ITPro", "Cloud Computing News", "Opensource.com", "IEEE Software", "i-Programmer", "ACM Queue", "DZone", "TechTarget"], "requires_any_trigger": "developer_it" },
+    "Cybersecurity": { "outlets_match": ["Dark Reading", "SC Magazine", "SecurityWeek", "The Hacker News", "BleepingComputer", "Security Boulevard", "Infosecurity Magazine", "Cyber Defense Magazine"], "requires_any_trigger": "cybersecurity" },
+    "RealEstate": { "outlets_match": ["Inman", "Healthcare Design", "Construction Dive"], "requires_any_trigger": "real_estate" }
+  }
+}
